@@ -16,10 +16,8 @@ COPY . .
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -o api main.go
 
-# Runtime stage
-FROM alpine:latest
-
-RUN apk --no-cache add ca-certificates
+# Runtime stage - use scratch for minimal image
+FROM scratch
 
 WORKDIR /root/
 
