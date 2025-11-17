@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 type ParseRequest struct {
@@ -12,9 +14,9 @@ type ParseRequest struct {
 }
 
 type Node struct {
-	ID   string                 `json:"id"`
-	Type string                 `json:"type"`
-	Data map[string]interface{} `json:"data"`
+	ID       string                 `json:"id"`
+	Type     string                 `json:"type"`
+	Data     map[string]interface{} `json:"data"`
 	Position struct {
 		X float64 `json:"x"`
 		Y float64 `json:"y"`
@@ -134,16 +136,44 @@ func min(a, b int) int {
 }
 
 func main() {
-	http.HandleFunc("/parse", parseHandler)
-	http.HandleFunc("/health", healthHandler)
-
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 
+	// Healthcheck mode: allows container healthcheck without extra tools
+	if len(os.Args) > 1 && os.Args[1] == "-healthcheck" {
+		if err := runHealthCheck(port); err != nil {
+			log.Printf("healthcheck failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	http.HandleFunc("/parse", parseHandler)
+	http.HandleFunc("/health", healthHandler)
+
 	log.Printf("Server starting on port %s...", port)
 	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func runHealthCheck(port string) error {
+	target := "http://localhost:" + port + "/health"
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	resp, err := client.Get(target)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+
+	return nil
 }

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
+import { useEffect } from 'react';
 
 const FlowVisualization = dynamic(
   () => import('@/components/FlowVisualization'),
@@ -27,7 +28,26 @@ export default function Home() {
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [loading, setLoading] = useState(false);
+  const [apiBaseUrl, setApiBaseUrl] = useState(
+    process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
+  );
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const loadConfig = async () => {
+      try {
+        const res = await fetch('/config.json');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.apiBaseUrl) {
+          setApiBaseUrl(data.apiBaseUrl);
+        }
+      } catch {
+        // fallback to env/default
+      }
+    };
+    loadConfig();
+  }, []);
 
   const handleParse = async () => {
     if (!markdown.trim()) {
@@ -39,8 +59,7 @@ export default function Home() {
     setError('');
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
-      const response = await fetch(`${apiUrl}/parse`, {
+      const response = await fetch(`${apiBaseUrl}/parse`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

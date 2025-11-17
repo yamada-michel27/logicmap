@@ -16,14 +16,14 @@ COPY . .
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -o api main.go
 
-# Runtime stage - use scratch for minimal image
-FROM scratch
+# Runtime stage - distroless
+FROM gcr.io/distroless/static-debian12:nonroot
 
-WORKDIR /root/
+WORKDIR /
 
 # Copy the binary from builder
-COPY --from=builder /app/api .
+COPY --from=builder /app/api /api
 
 EXPOSE 8080
 
-CMD ["./api"]
+ENTRYPOINT ["/api"]
