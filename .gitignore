@@ -1,0 +1,11 @@
+# Backend
+backend/api
+backend/*.exe
+
+# Frontend - already has .gitignore but adding common ones
+.DS_Store
+*.log
+.env*.local
+
+# Docker
+*.tar
