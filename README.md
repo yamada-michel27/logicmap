@@ -181,9 +181,3 @@ go test ./...         # テスト実行
 ## ライセンス / License
 
 MIT
-
-## 貢献 / Contributing
-
-プルリクエストを歓迎します！大きな変更の場合は、まずissueを開いて変更内容を議論してください。
-
-Pull requests are welcome! For major changes, please open an issue first to discuss what you would like to change.
