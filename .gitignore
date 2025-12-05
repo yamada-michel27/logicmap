@@ -9,3 +9,11 @@ backend/*.exe
 
 # Docker
 *.tar
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+crash.log
+terraform.tfvars
+*.auto.tfvars
