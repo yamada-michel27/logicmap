@@ -10,7 +10,6 @@ on:
         type: choice
         options:
           - main
-          - staging
 
 env:
   AWS_REGION: ap-northeast-1
