@@ -6,6 +6,7 @@ backend/*.exe
 .DS_Store
 *.log
 .env*.local
+.env*.aws
 
 # Docker
 *.tar
