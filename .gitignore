@@ -6,6 +6,15 @@ backend/*.exe
 .DS_Store
 *.log
 .env*.local
+.env*.aws
 
 # Docker
 *.tar
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+crash.log
+terraform.tfvars
+*.auto.tfvars
