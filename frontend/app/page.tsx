@@ -21,7 +21,120 @@ interface Edge {
   source: string;
   target: string;
   label?: string;
+  type?: string;
+  animated?: boolean;
+  style?: CSSProperties;
 }
+
+type Understanding = 'understood' | 'ambiguous' | 'not_understood';
+
+const statusConfig: Record<
+  Understanding,
+  { label: string; color: string; ring: string; dashed?: boolean }
+> = {
+  understood: {
+    label: '理解できている',
+    color: '#2f855a',
+    ring: 'rgba(47,133,90,0.25)',
+  },
+  ambiguous: {
+    label: '曖昧',
+    color: '#d97706',
+    ring: 'rgba(217,119,6,0.25)',
+    dashed: true,
+  },
+  not_understood: {
+    label: '理解できていない',
+    color: '#c2410c',
+    ring: 'rgba(194,65,12,0.25)',
+  },
+};
+
+const sanitizeLabel = (input: string) => {
+  const sanitized = input
+    .replace(/\uFFFD+/g, '')
+    .replace(/^\s*\[[^\]]+\]\s*/, '')
+    .replace(/^\s*[-*・]\s*/, '')
+    .replace(/\s*->\s*[\p{L}\p{N}_-]+$/u, '')
+    .trim();
+
+  if (/^>\s*[\p{L}\p{N}_-]*$/u.test(sanitized)) {
+    return '';
+  }
+
+  return sanitized;
+};
+
+const normalizeFlow = (rawNodes: Node[], rawEdges: Edge[]) => {
+  const nodes = rawNodes.map((node) => {
+    const rawLabel = typeof node?.data?.label === 'string' ? node.data.label : '';
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        label: sanitizeLabel(rawLabel),
+      },
+    };
+  });
+  const edges = rawEdges.map((edge) => {
+    const rawLabel = typeof edge?.label === 'string' ? edge.label : '';
+    return {
+      ...edge,
+      label: rawLabel
+        ? rawLabel.replace(/\uFFFD+/g, '').replace(/^\s*[-*・]\s*/, '').trim()
+        : rawLabel,
+    };
+  });
+
+  const emptyNodeIds = new Set(nodes.filter((node) => !node.data.label).map((node) => node.id));
+  if (emptyNodeIds.size === 0) {
+    return { nodes, edges };
+  }
+
+  const nextNodes = nodes.filter((node) => !emptyNodeIds.has(node.id));
+  const nextEdges: Edge[] = [];
+  const edgesBySource = new Map<string, Edge[]>();
+  const edgesByTarget = new Map<string, Edge[]>();
+
+  edges.forEach((edge) => {
+    if (!edgesBySource.has(edge.source)) {
+      edgesBySource.set(edge.source, []);
+    }
+    edgesBySource.get(edge.source)?.push(edge);
+    if (!edgesByTarget.has(edge.target)) {
+      edgesByTarget.set(edge.target, []);
+    }
+    edgesByTarget.get(edge.target)?.push(edge);
+  });
+
+  edges.forEach((edge) => {
+    if (emptyNodeIds.has(edge.source) || emptyNodeIds.has(edge.target)) {
+      return;
+    }
+    nextEdges.push(edge);
+  });
+
+  emptyNodeIds.forEach((nodeId) => {
+    const incoming = edgesByTarget.get(nodeId) ?? [];
+    const outgoing = edgesBySource.get(nodeId) ?? [];
+    if (incoming.length === 1 && outgoing.length === 1) {
+      const inEdge = incoming[0];
+      const outEdge = outgoing[0];
+      const merged: Edge = {
+        id: `e${inEdge.source}-${outEdge.target}-collapsed`,
+        source: inEdge.source,
+        target: outEdge.target,
+        label: inEdge.label || outEdge.label,
+        type: outEdge.type || inEdge.type,
+        animated: outEdge.animated || inEdge.animated,
+        style: outEdge.style || inEdge.style,
+      };
+      nextEdges.push(merged);
+    }
+  });
+
+  return { nodes: nextNodes, edges: nextEdges };
+};
 
 export default function Home() {
   const [markdown, setMarkdown] = useState('');
@@ -72,8 +185,17 @@ export default function Home() {
       }
 
       const data = await response.json();
-      setNodes(data.nodes);
-      setEdges(data.edges);
+      const normalized = normalizeFlow(data.nodes || [], data.edges || []);
+      setNodes(normalized.nodes);
+      setEdges(normalized.edges);
+      setSelectedNodeId(null);
+      setNodeStatus((prev) => {
+        const next: Record<string, Understanding> = {};
+        normalized.nodes.forEach((node: Node) => {
+          next[node.id] = prev[node.id] ?? 'ambiguous';
+        });
+        return next;
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
