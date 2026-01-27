@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "LogicMap - Visualize Algorithm Flows",
-  description: "Visualize algorithm flows from Markdown using ReactFlow",
+  description: "Visualize algorithm flows with LogicMap",
 };
 
 export default function RootLayout({
