@@ -9,7 +9,7 @@ const FlowVisualization = dynamic(() => import('@/components/FlowVisualization')
 export default function Home() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800">
-      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-6">
+      <div className="mx-auto flex h-screen w-full max-w-6xl flex-col px-4 py-6">
         <header className="mb-4">
           <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
             LogicMap

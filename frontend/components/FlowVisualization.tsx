@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -128,12 +128,18 @@ export default function FlowVisualization() {
   const [pendingNodeClientPosition, setPendingNodeClientPosition] = useState<XYPosition | null>(
     null
   );
-  const [debugDots, setDebugDots] = useState<XYPosition[]>([]);
-  const [debugEventLabel, setDebugEventLabel] = useState<string | null>(null);
+  const [debugEvent, setDebugEvent] = useState<{
+    type: string;
+    x: number;
+    y: number;
+    count: number;
+  } | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
   const nextNodeSeq = useRef(1);
   const nextEdgeSeq = useRef(1);
+  const debugEventCount = useRef(0);
+  const lastPaneClickAt = useRef<number | null>(null);
 
   const createNode = useCallback(
     (params: {
@@ -163,14 +169,7 @@ export default function FlowVisualization() {
     setPendingConnection(params);
   }, []);
 
-  const getLocalPoint = useCallback((clientX: number, clientY: number) => {
-    const wrapper = wrapperRef.current;
-    if (!wrapper) return { x: clientX, y: clientY };
-    const rect = wrapper.getBoundingClientRect();
-    return { x: clientX - rect.left, y: clientY - rect.top };
-  }, []);
-
-  const openNodeModalAtClient = useCallback((event: MouseEvent) => {
+  const openNodeModalAtClient = useCallback((event: ReactMouseEvent) => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
     const rect = wrapper.getBoundingClientRect();
@@ -185,34 +184,46 @@ export default function FlowVisualization() {
     event.preventDefault();
     setPendingConnection(null);
     setPendingNodeClientPosition({ x: event.clientX, y: event.clientY });
-    setDebugEventLabel(`open-modal x:${Math.round(event.clientX)} y:${Math.round(event.clientY)}`);
   }, []);
 
-  useEffect(() => {
-    const handlePointerDown = (event: PointerEvent) => {
-      const localPoint = getLocalPoint(event.clientX, event.clientY);
-      setDebugDots((prev) => [...prev.slice(-3), localPoint]);
-      setDebugEventLabel(`pointerdown detail:${event.detail ?? 'n/a'}`);
-    };
-
-    const handleDoubleClick = (event: MouseEvent) => {
-      if (event.button !== 0) return;
-      if (event.detail < 2) return;
-      setDebugEventLabel(`dblclick detail:${event.detail}`);
+  const onWrapperDoubleClickCapture = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
       openNodeModalAtClient(event);
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown, true);
-    document.addEventListener('dblclick', handleDoubleClick, true);
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown, true);
-      document.removeEventListener('dblclick', handleDoubleClick, true);
-    };
-  }, [getLocalPoint, openNodeModalAtClient]);
+    },
+    [openNodeModalAtClient]
+  );
 
   const onInit = useCallback((instance: ReactFlowInstance) => {
     reactFlowInstance.current = instance;
   }, []);
+
+  const recordDebugEvent = useCallback((type: string, event: ReactMouseEvent) => {
+    debugEventCount.current += 1;
+    setDebugEvent({
+      type,
+      x: Math.round(event.clientX),
+      y: Math.round(event.clientY),
+      count: debugEventCount.current,
+    });
+  }, []);
+
+  const onWrapperClickCapture = useCallback(
+    (event: ReactMouseEvent<HTMLDivElement>) => {
+      recordDebugEvent('wrapper click', event);
+    },
+    [recordDebugEvent]
+  );
+
+  const onPaneClick = useCallback(
+    (event: ReactMouseEvent) => {
+      const now = Date.now();
+      const lastClick = lastPaneClickAt.current;
+      const isDoubleClick = lastClick !== null && now - lastClick < 320;
+      lastPaneClickAt.current = now;
+      recordDebugEvent(isDoubleClick ? 'pane double click' : 'pane click', event);
+    },
+    [recordDebugEvent]
+  );
 
   const applyControlType = useCallback(
     (controlType: ControlType) => {
@@ -353,13 +364,38 @@ export default function FlowVisualization() {
   }, [applyNodeOption, cancelNodeCreation, pendingNodeClientPosition]);
 
   return (
-    <div className="relative h-full w-full" ref={wrapperRef}>
+    <div
+      className="relative h-full w-full"
+      ref={wrapperRef}
+      onDoubleClickCapture={onWrapperDoubleClickCapture}
+      onClickCapture={onWrapperClickCapture}
+    >
+      <button
+        type="button"
+        className="absolute right-3 top-3 z-30 rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-semibold text-gray-900 shadow-sm hover:bg-gray-50"
+        onClick={() => setPendingNodeClientPosition({ x: 300, y: 220 })}
+      >
+        Debug: Open Modal
+      </button>
+      <div className="absolute right-3 top-12 z-30 rounded-md border border-gray-300 bg-white px-3 py-2 text-xs text-gray-900 shadow-sm">
+        <div className="font-semibold">Debug: Pane Event</div>
+        {debugEvent ? (
+          <>
+            <div className="mt-1">type: {debugEvent.type}</div>
+            <div>pos: {debugEvent.x}, {debugEvent.y}</div>
+            <div>count: {debugEvent.count}</div>
+          </>
+        ) : (
+          <div className="mt-1">none</div>
+        )}
+      </div>
       <ReactFlow
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onPaneClick={onPaneClick}
         zoomOnDoubleClick={false}
         onInit={onInit}
         nodeTypes={nodeTypes}
@@ -371,18 +407,6 @@ export default function FlowVisualization() {
       </ReactFlow>
       {edgeModalContent}
       {nodeModalContent}
-      {debugDots.map((dot, index) => (
-        <div
-          key={`${dot.x}-${dot.y}-${index}`}
-          className="pointer-events-none absolute z-50 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-rose-500"
-          style={{ left: dot.x, top: dot.y }}
-        />
-      ))}
-      {debugEventLabel ? (
-        <div className="pointer-events-none absolute left-3 top-3 z-50 rounded-md bg-black/70 px-2 py-1 text-xs font-semibold text-white">
-          {debugEventLabel}
-        </div>
-      ) : null}
     </div>
   );
 }
