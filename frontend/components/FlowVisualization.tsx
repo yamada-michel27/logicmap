@@ -179,6 +179,19 @@ function getNodeDisplayLabel(node: Node<FlowNodeData>) {
   return getLogicNodeLabel(node.data as LogicNodeData);
 }
 
+function getNodeOptionForNode(node: Node<FlowNodeData>): NodeOption | null {
+  if (node.type === 'sectionNode') {
+    const data = node.data as SectionNodeData;
+    return (
+      NODE_OPTIONS.find(
+        (option) => option.kind === 'section' && option.sectionType === data.sectionType
+      ) ?? null
+    );
+  }
+  const data = node.data as LogicNodeData;
+  return NODE_OPTIONS.find((option) => option.kind === data.nodeKind) ?? null;
+}
+
 function isEventFromNodeOrEdge(event: ReactMouseEvent) {
   const target = event.target;
   if (!(target instanceof Element)) return false;
@@ -259,11 +272,8 @@ export default function FlowVisualization() {
   const [pendingNodeDelete, setPendingNodeDelete] = useState<{ id: string; label: string } | null>(
     null
   );
-  const [pendingEdgeDelete, setPendingEdgeDelete] = useState<{
-    id: string;
-    x: number;
-    y: number;
-  } | null>(null);
+  const [pendingNodeEdit, setPendingNodeEdit] = useState<{ id: string } | null>(null);
+  const [pendingEdgeEdit, setPendingEdgeEdit] = useState<{ id: string } | null>(null);
   const [selectedEdgeControl, setSelectedEdgeControl] =
     useState<ControlType>(DEFAULT_EDGE_CONTROL);
   const [debugEvent, setDebugEvent] = useState<{
@@ -323,10 +333,33 @@ export default function FlowVisualization() {
   const onConnect = useCallback((params: Connection) => {
     setPendingNodeClientPosition(null);
     setPendingNodeDelete(null);
-    setPendingEdgeDelete(null);
+    setPendingNodeEdit(null);
+    setPendingEdgeEdit(null);
     setSelectedEdgeControl(DEFAULT_EDGE_CONTROL);
     setPendingConnection(params);
   }, []);
+
+  const onEdgeUpdate = useCallback(
+    (oldEdge: Edge<LogicEdgeData>, newConnection: Connection) => {
+      setPendingNodeClientPosition(null);
+      setPendingNodeDelete(null);
+      setPendingNodeEdit(null);
+      setPendingEdgeEdit(null);
+      setEdges((currentEdges) =>
+        currentEdges.map((edge) => {
+          if (edge.id !== oldEdge.id) return edge;
+          return {
+            ...edge,
+            source: newConnection.source ?? edge.source,
+            target: newConnection.target ?? edge.target,
+            sourceHandle: newConnection.sourceHandle ?? edge.sourceHandle,
+            targetHandle: newConnection.targetHandle ?? edge.targetHandle,
+          };
+        })
+      );
+    },
+    [setEdges]
+  );
 
   const openNodeModalAtClient = useCallback((event: ReactMouseEvent) => {
     const wrapper = wrapperRef.current;
@@ -344,7 +377,8 @@ export default function FlowVisualization() {
     event.preventDefault();
     setPendingConnection(null);
     setPendingNodeDelete(null);
-    setPendingEdgeDelete(null);
+    setPendingNodeEdit(null);
+    setPendingEdgeEdit(null);
     setPendingNodeClientPosition({ x: event.clientX, y: event.clientY });
   }, []);
 
@@ -492,11 +526,110 @@ export default function FlowVisualization() {
     setPendingNodeClientPosition(null);
   }, []);
 
+  const cancelNodeEdit = useCallback(() => {
+    setPendingNodeEdit(null);
+  }, []);
+
+  const applyNodeEditOption = useCallback(
+    (option: NodeOption) => {
+      if (!pendingNodeEdit) return;
+      let typeChanged = false;
+      setNodes((currentNodes) => {
+        const target = currentNodes.find((node) => node.id === pendingNodeEdit.id);
+        if (!target) return currentNodes;
+        const targetIsSection = target.type === 'sectionNode';
+        const nextIsSection = option.kind === 'section';
+        typeChanged = targetIsSection !== nextIsSection;
+        const targetSeq = (target.data as FlowNodeData).seq;
+        const absolutePos = target.positionAbsolute ?? target.position;
+        const shouldDetachChildren = targetIsSection && !nextIsSection;
+        const nextNodes = currentNodes.map((node) => {
+          if (node.id === target.id) {
+            if (nextIsSection) {
+              const sectionType = option.sectionType ?? 'function';
+              const width =
+                typeof node.style?.width === 'number' ? node.style.width : SECTION_DEFAULT_WIDTH;
+              const height =
+                typeof node.style?.height === 'number' ? node.style.height : SECTION_DEFAULT_HEIGHT;
+              return {
+                ...node,
+                type: 'sectionNode',
+                parentNode: undefined,
+                extent: undefined,
+                position: absolutePos,
+                style: { width, height },
+                data: {
+                  label: option.label,
+                  sectionType,
+                  seq: targetSeq,
+                },
+              };
+            }
+            const label = option.nodeLabel ?? option.label;
+            const controlType = (node.data as LogicNodeData).controlType;
+            const keepParent = !targetIsSection;
+            return {
+              ...node,
+              type: 'logicNode',
+              parentNode: keepParent ? node.parentNode : undefined,
+              extent: keepParent ? node.extent : undefined,
+              position: keepParent ? node.position : absolutePos,
+              style: keepParent ? node.style : undefined,
+              data: {
+                label,
+                nodeKind: option.kind as NodeKind,
+                seq: targetSeq,
+                controlType,
+              },
+            };
+          }
+          if (shouldDetachChildren && node.parentNode === target.id) {
+            const absoluteChildPos = node.positionAbsolute ?? node.position;
+            return {
+              ...node,
+              parentNode: undefined,
+              extent: undefined,
+              position: absoluteChildPos,
+            };
+          }
+          return node;
+        });
+        return nextNodes;
+      });
+
+      if (typeChanged) {
+        setEdges((currentEdges) =>
+          currentEdges.map((edge) => {
+            if (edge.source === pendingNodeEdit.id && edge.sourceHandle) {
+              return { ...edge, sourceHandle: undefined };
+            }
+            if (edge.target === pendingNodeEdit.id && edge.targetHandle) {
+              return { ...edge, targetHandle: undefined };
+            }
+            return edge;
+          })
+        );
+      }
+
+      setPendingNodeEdit(null);
+    },
+    [pendingNodeEdit, setEdges, setNodes]
+  );
+
   const openNodeDeleteModal = useCallback((node: Node<FlowNodeData>) => {
     setPendingConnection(null);
     setPendingNodeClientPosition(null);
-    setPendingEdgeDelete(null);
+    setPendingNodeEdit(null);
+    setPendingEdgeEdit(null);
     setPendingNodeDelete({ id: node.id, label: getNodeDisplayLabel(node) });
+  }, []);
+
+  const openNodeEditModal = useCallback((node: Node<FlowNodeData>) => {
+    setPendingConnection(null);
+    setPendingNodeClientPosition(null);
+    setPendingNodeDelete(null);
+    setPendingEdgeEdit(null);
+    setPendingNodeEdit({ id: node.id });
   }, []);
 
   const deleteNodeById = useCallback(
@@ -529,26 +662,21 @@ export default function FlowVisualization() {
     (event: ReactMouseEvent, node: Node<FlowNodeData>) => {
       event.preventDefault();
       event.stopPropagation();
-      openNodeDeleteModal(node);
+      openNodeEditModal(node);
     },
-    [openNodeDeleteModal]
+    [openNodeEditModal]
   );
 
   const onEdgeDoubleClick = useCallback(
     (event: ReactMouseEvent, edge: Edge<LogicEdgeData>) => {
-      const wrapper = wrapperRef.current;
-      if (!wrapper) return;
       event.preventDefault();
       event.stopPropagation();
-      const rect = wrapper.getBoundingClientRect();
       setPendingNodeClientPosition(null);
       setPendingNodeDelete(null);
       setPendingConnection(null);
-      setPendingEdgeDelete({
-        id: edge.id,
-        x: event.clientX - rect.left,
-        y: event.clientY - rect.top,
-      });
+      setPendingNodeEdit(null);
+      setSelectedEdgeControl(edge.data?.controlType ?? DEFAULT_EDGE_CONTROL);
+      setPendingEdgeEdit({ id: edge.id });
     },
     []
   );
@@ -556,7 +684,34 @@ export default function FlowVisualization() {
   const deleteEdgeById = useCallback(
     (edgeId: string) => {
       setEdges((currentEdges) => currentEdges.filter((edge) => edge.id !== edgeId));
-      setPendingEdgeDelete(null);
+      setPendingEdgeEdit(null);
+    },
+    [setEdges]
+  );
+
+  const updateEdgeControl = useCallback(
+    (edgeId: string, controlType: ControlType) => {
+      const style = CONTROL_STYLE[controlType];
+      setEdges((currentEdges) =>
+        currentEdges.map((edge) => {
+          if (edge.id !== edgeId) return edge;
+          return {
+            ...edge,
+            label: style.label || undefined,
+            style: {
+              ...edge.style,
+              stroke: style.color,
+              strokeWidth: EDGE_STROKE_WIDTH,
+              strokeDasharray: style.edgeDash,
+            },
+            labelStyle: {
+              fill: style.color,
+              fontWeight: 600,
+            },
+            data: { ...edge.data, controlType },
+          };
+        })
+      );
     },
     [setEdges]
   );
@@ -565,9 +720,21 @@ export default function FlowVisualization() {
     setSelectedEdgeControl(event.target.value as ControlType);
   }, []);
 
+  const closeEdgeModal = useCallback(() => {
+    setPendingConnection(null);
+    setPendingEdgeEdit(null);
+  }, []);
+
   const applySelectedControl = useCallback(() => {
-    applyControlType(selectedEdgeControl);
-  }, [applyControlType, selectedEdgeControl]);
+    if (pendingConnection) {
+      applyControlType(selectedEdgeControl);
+      return;
+    }
+    if (pendingEdgeEdit) {
+      updateEdgeControl(pendingEdgeEdit.id, selectedEdgeControl);
+      setPendingEdgeEdit(null);
+    }
+  }, [applyControlType, pendingConnection, pendingEdgeEdit, selectedEdgeControl, updateEdgeControl]);
 
   const onNodeDragStop = useCallback<NodeDragHandler>(
     (_event, draggedNode) => {
@@ -619,33 +786,19 @@ export default function FlowVisualization() {
     [setNodes]
   );
 
-  const edgeDeleteContent = useMemo(() => {
-    if (!pendingEdgeDelete) return null;
-    return (
-      <div
-        className="absolute z-30"
-        style={{ left: pendingEdgeDelete.x - 10, top: pendingEdgeDelete.y - 10 }}
-      >
-        <button
-          type="button"
-          className="flex h-5 w-5 items-center justify-center rounded-full border border-rose-500 bg-white text-xs font-bold text-rose-600 shadow-sm hover:bg-rose-50"
-          aria-label="edge delete"
-          onClick={() => deleteEdgeById(pendingEdgeDelete.id)}
-        >
-          x
-        </button>
-      </div>
-    );
-  }, [deleteEdgeById, pendingEdgeDelete]);
-
   const edgeModalContent = useMemo(() => {
-    if (!pendingConnection) return null;
+    const isEdit = Boolean(pendingEdgeEdit);
+    if (!pendingConnection && !pendingEdgeEdit) return null;
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
         <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-          <h3 className="text-lg font-semibold text-gray-900">制御構文を選択</h3>
+          <h3 className="text-lg font-semibold text-gray-900">
+            {isEdit ? 'エッジを編集' : '制御構文を選択'}
+          </h3>
           <p className="mt-1 text-sm text-gray-600">
-            接続したエッジの制御構文を選んでください。キャンセルすると接続は破棄されます。
+            {isEdit
+              ? 'エッジの制御構文を変更できます。'
+              : '接続したエッジの制御構文を選んでください。キャンセルすると接続は破棄されます。'}
           </p>
           <div className="mt-4">
             <label className="text-xs font-semibold text-gray-700">エッジ種別</label>
@@ -662,10 +815,22 @@ export default function FlowVisualization() {
             </select>
           </div>
           <div className="mt-5 flex items-center justify-end gap-2">
+            {isEdit ? (
+              <button
+                type="button"
+                className="mr-auto rounded-md border border-rose-200 px-3 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50"
+                onClick={() => {
+                  if (!pendingEdgeEdit) return;
+                  deleteEdgeById(pendingEdgeEdit.id);
+                }}
+              >
+                削除する
+              </button>
+            ) : null}
             <button
               type="button"
               className="rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              onClick={cancelConnection}
+              onClick={isEdit ? closeEdgeModal : cancelConnection}
             >
               キャンセル
             </button>
@@ -683,37 +848,66 @@ export default function FlowVisualization() {
   }, [
     applySelectedControl,
     cancelConnection,
+    closeEdgeModal,
+    deleteEdgeById,
     onEdgeControlChange,
     pendingConnection,
+    pendingEdgeEdit,
     selectedEdgeControl,
   ]);
 
   const nodeModalContent = useMemo(() => {
-    if (!pendingNodeClientPosition) return null;
+    const isEdit = Boolean(pendingNodeEdit);
+    if (!pendingNodeClientPosition && !pendingNodeEdit) return null;
+    const editingNode = pendingNodeEdit
+      ? nodes.find((node) => node.id === pendingNodeEdit.id) ?? null
+      : null;
+    const selectedOption = editingNode ? getNodeOptionForNode(editingNode) : null;
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
         <div className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
-          <h3 className="text-lg font-semibold text-gray-900">ノード種別を選択</h3>
+          <h3 className="text-lg font-semibold text-gray-900">
+            {isEdit ? 'ノード種別を変更' : 'ノード種別を選択'}
+          </h3>
           <p className="mt-1 text-sm text-gray-600">
-            追加したいノードを選んでください。キャンセルすると追加は行いません。
+            {isEdit
+              ? '変更したいノード種別を選んでください。'
+              : '追加したいノードを選んでください。キャンセルすると追加は行いません。'}
           </p>
           <div className="mt-4 grid grid-cols-2 gap-2">
             {NODE_OPTIONS.map((option) => (
               <button
                 key={`${option.kind}-${option.label}`}
                 type="button"
-                className="rounded-md border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50"
-                onClick={() => applyNodeOption(option)}
+                className={`rounded-md border px-3 py-2 text-sm font-semibold ${
+                  selectedOption &&
+                  option.kind === selectedOption.kind &&
+                  option.sectionType === selectedOption.sectionType
+                    ? 'border-gray-900 bg-gray-900 text-white'
+                    : 'border-gray-200 text-gray-900 hover:bg-gray-50'
+                }`}
+                onClick={() =>
+                  isEdit ? applyNodeEditOption(option) : applyNodeOption(option)
+                }
               >
                 {option.label}
               </button>
             ))}
           </div>
-          <div className="mt-5 flex justify-end">
+          <div className="mt-5 flex items-center justify-end gap-2">
+            {isEdit && editingNode ? (
+              <button
+                type="button"
+                className="mr-auto rounded-md border border-rose-200 px-3 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50"
+                onClick={() => openNodeDeleteModal(editingNode)}
+              >
+                削除する
+              </button>
+            ) : null}
             <button
               type="button"
               className="rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
-              onClick={cancelNodeCreation}
+              onClick={isEdit ? cancelNodeEdit : cancelNodeCreation}
             >
               キャンセル
             </button>
@@ -721,7 +915,16 @@ export default function FlowVisualization() {
         </div>
       </div>
     );
-  }, [applyNodeOption, cancelNodeCreation, pendingNodeClientPosition]);
+  }, [
+    applyNodeEditOption,
+    applyNodeOption,
+    cancelNodeCreation,
+    cancelNodeEdit,
+    nodes,
+    openNodeDeleteModal,
+    pendingNodeClientPosition,
+    pendingNodeEdit,
+  ]);
 
   const nodeDeleteContent = useMemo(() => {
     if (!pendingNodeDelete) return null;
@@ -785,6 +988,7 @@ export default function FlowVisualization() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onEdgeUpdate={onEdgeUpdate}
         onNodeDragStop={onNodeDragStop}
         onNodeDoubleClick={onNodeDoubleClick}
         onEdgeDoubleClick={onEdgeDoubleClick}
@@ -799,7 +1003,6 @@ export default function FlowVisualization() {
         <MiniMap />
         <Background gap={12} size={1} />
       </ReactFlow>
-      {edgeDeleteContent}
       {edgeModalContent}
       {nodeModalContent}
       {nodeDeleteContent}
