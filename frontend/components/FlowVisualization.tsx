@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -16,6 +23,7 @@ import ReactFlow, {
   Position,
   XYPosition,
   ReactFlowInstance,
+  ConnectionMode,
   type NodeDragHandler,
 } from 'reactflow';
 import { NodeResizer } from '@reactflow/node-resizer';
@@ -26,7 +34,8 @@ import '@reactflow/node-resizer/dist/style.css';
 type NodeKind = 'start' | 'end' | 'normal';
 type SectionType = 'function' | 'class';
 
-const CONTROL_TYPES = [
+const EDGE_CONTROL_TYPES = [
+  'flow',
   'while',
   'for',
   'if-else',
@@ -37,7 +46,7 @@ const CONTROL_TYPES = [
   'class',
 ] as const;
 
-type ControlType = (typeof CONTROL_TYPES)[number];
+type ControlType = (typeof EDGE_CONTROL_TYPES)[number];
 
 type LogicNodeData = {
   label?: string;
@@ -80,8 +89,9 @@ function toRgba(hex: string, alpha: number) {
 
 const CONTROL_STYLE: Record<
   ControlType,
-  { label: string; color: string; edgeDash?: string; nodeBg?: string }
+  { label: string; color: string; edgeDash?: string; nodeBg?: string; modalLabel?: string }
 > = {
+  flow: { label: '', color: '#64748b', modalLabel: '通常（ラベルなし）' },
   while: { label: 'while', color: '#2563eb', edgeDash: '6 4' },
   for: { label: 'for', color: '#0f766e', edgeDash: '6 4' },
   'if-else': { label: 'if-else', color: '#4f46e5' },
@@ -97,6 +107,7 @@ const SECTION_MIN_HEIGHT = 160;
 const SECTION_DEFAULT_WIDTH = 320;
 const SECTION_DEFAULT_HEIGHT = 220;
 const EDGE_STROKE_WIDTH = 3;
+const DEFAULT_EDGE_CONTROL: ControlType = 'flow';
 
 type NodeOption = {
   label: string;
@@ -180,10 +191,10 @@ function LogicNode({ data }: NodeProps<LogicNodeData>) {
       }}
     >
       {showLabel ? <div className="text-sm font-semibold">{label}</div> : null}
-      <Handle type="target" position={Position.Left} id="t-left" />
-      <Handle type="source" position={Position.Right} id="s-right" />
-      <Handle type="target" position={Position.Top} id="t-top" />
-      <Handle type="source" position={Position.Bottom} id="s-bottom" />
+      <Handle type="source" position={Position.Left} id="h-left" />
+      <Handle type="source" position={Position.Right} id="h-right" />
+      <Handle type="source" position={Position.Top} id="h-top" />
+      <Handle type="source" position={Position.Bottom} id="h-bottom" />
     </div>
   );
 }
@@ -204,10 +215,10 @@ function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
       <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: style.color }}>
         {style.label}
       </div>
-      <Handle type="target" position={Position.Left} id="section-t-left" />
-      <Handle type="source" position={Position.Right} id="section-s-right" />
-      <Handle type="target" position={Position.Top} id="section-t-top" />
-      <Handle type="source" position={Position.Bottom} id="section-s-bottom" />
+      <Handle type="source" position={Position.Left} id="section-h-left" />
+      <Handle type="source" position={Position.Right} id="section-h-right" />
+      <Handle type="source" position={Position.Top} id="section-h-top" />
+      <Handle type="source" position={Position.Bottom} id="section-h-bottom" />
     </div>
   );
 }
@@ -224,6 +235,8 @@ export default function FlowVisualization() {
   const [pendingNodeClientPosition, setPendingNodeClientPosition] = useState<XYPosition | null>(
     null
   );
+  const [selectedEdgeControl, setSelectedEdgeControl] =
+    useState<ControlType>(DEFAULT_EDGE_CONTROL);
   const [debugEvent, setDebugEvent] = useState<{
     type: string;
     x: number;
@@ -280,6 +293,7 @@ export default function FlowVisualization() {
 
   const onConnect = useCallback((params: Connection) => {
     setPendingNodeClientPosition(null);
+    setSelectedEdgeControl(DEFAULT_EDGE_CONTROL);
     setPendingConnection(params);
   }, []);
 
@@ -351,7 +365,7 @@ export default function FlowVisualization() {
         id: edgeId,
         source: pendingConnection.source,
         target: pendingConnection.target,
-        label: style.label,
+        label: style.label || undefined,
         style: {
           stroke: style.color,
           strokeWidth: EDGE_STROKE_WIDTH,
@@ -365,17 +379,19 @@ export default function FlowVisualization() {
       };
 
       setEdges((eds) => addEdge(edge, eds));
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => {
-          if (node.id === pendingConnection.source || node.id === pendingConnection.target) {
-            return {
-              ...node,
-              data: { ...node.data, controlType },
-            };
-          }
-          return node;
-        })
-      );
+      if (controlType !== 'flow') {
+        setNodes((currentNodes) =>
+          currentNodes.map((node) => {
+            if (node.id === pendingConnection.source || node.id === pendingConnection.target) {
+              return {
+                ...node,
+                data: { ...node.data, controlType },
+              };
+            }
+            return node;
+          })
+        );
+      }
       setPendingConnection(null);
     },
     [pendingConnection, setEdges, setNodes]
@@ -440,6 +456,14 @@ export default function FlowVisualization() {
     setPendingNodeClientPosition(null);
   }, []);
 
+  const onEdgeControlChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    setSelectedEdgeControl(event.target.value as ControlType);
+  }, []);
+
+  const applySelectedControl = useCallback(() => {
+    applyControlType(selectedEdgeControl);
+  }, [applyControlType, selectedEdgeControl]);
+
   const onNodeDragStop = useCallback<NodeDragHandler>(
     (_event, draggedNode) => {
       if (draggedNode.type === 'sectionNode') return;
@@ -499,19 +523,21 @@ export default function FlowVisualization() {
           <p className="mt-1 text-sm text-gray-600">
             接続したエッジの制御構文を選んでください。キャンセルすると接続は破棄されます。
           </p>
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            {CONTROL_TYPES.map((type) => (
-              <button
-                key={type}
-                type="button"
-                className="rounded-md border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50"
-                onClick={() => applyControlType(type)}
-              >
-                {CONTROL_STYLE[type].label}
-              </button>
-            ))}
+          <div className="mt-4">
+            <label className="text-xs font-semibold text-gray-700">エッジ種別</label>
+            <select
+              value={selectedEdgeControl}
+              className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+              onChange={onEdgeControlChange}
+            >
+              {EDGE_CONTROL_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {CONTROL_STYLE[type].modalLabel ?? CONTROL_STYLE[type].label}
+                </option>
+              ))}
+            </select>
           </div>
-          <div className="mt-5 flex justify-end">
+          <div className="mt-5 flex items-center justify-end gap-2">
             <button
               type="button"
               className="rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
@@ -519,11 +545,24 @@ export default function FlowVisualization() {
             >
               キャンセル
             </button>
+            <button
+              type="button"
+              className="rounded-md bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+              onClick={applySelectedControl}
+            >
+              適用
+            </button>
           </div>
         </div>
       </div>
     );
-  }, [applyControlType, cancelConnection, pendingConnection]);
+  }, [
+    applySelectedControl,
+    cancelConnection,
+    onEdgeControlChange,
+    pendingConnection,
+    selectedEdgeControl,
+  ]);
 
   const nodeModalContent = useMemo(() => {
     if (!pendingNodeClientPosition) return null;
@@ -594,6 +633,7 @@ export default function FlowVisualization() {
         onConnect={onConnect}
         onNodeDragStop={onNodeDragStop}
         onPaneClick={onPaneClick}
+        connectionMode={ConnectionMode.Loose}
         zoomOnDoubleClick={false}
         onInit={onInit}
         nodeTypes={nodeTypes}
