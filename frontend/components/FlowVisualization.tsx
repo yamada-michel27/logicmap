@@ -16,11 +16,15 @@ import ReactFlow, {
   Position,
   XYPosition,
   ReactFlowInstance,
+  type NodeDragHandler,
 } from 'reactflow';
+import { NodeResizer } from '@reactflow/node-resizer';
 
 import 'reactflow/dist/style.css';
+import '@reactflow/node-resizer/dist/style.css';
 
 type NodeKind = 'start' | 'end' | 'normal';
+type SectionType = 'function' | 'class';
 
 const CONTROL_TYPES = [
   'while',
@@ -42,8 +46,24 @@ type LogicNodeData = {
   controlType?: ControlType;
 };
 
+type SectionNodeData = {
+  label: string;
+  sectionType: SectionType;
+  seq: number;
+  controlType?: ControlType;
+};
+
+type FlowNodeData = LogicNodeData | SectionNodeData;
+
 type LogicEdgeData = {
   controlType: ControlType;
+};
+
+type NodeRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 const CONTROL_STYLE: Record<
@@ -60,23 +80,60 @@ const CONTROL_STYLE: Record<
   class: { label: 'class', color: '#1d4ed8', nodeBg: '#eff6ff' },
 };
 
+const SECTION_MIN_WIDTH = 240;
+const SECTION_MIN_HEIGHT = 160;
+const SECTION_DEFAULT_WIDTH = 320;
+const SECTION_DEFAULT_HEIGHT = 220;
+const EDGE_STROKE_WIDTH = 3;
+
 type NodeOption = {
   label: string;
-  kind: NodeKind;
-  controlType?: ControlType;
+  kind: NodeKind | 'section';
+  sectionType?: SectionType;
+  nodeLabel?: string;
 };
 
 const NODE_OPTIONS: NodeOption[] = [
   { label: 'Start', kind: 'start' },
   { label: 'End', kind: 'end' },
-  ...CONTROL_TYPES.map(
-    (type): NodeOption => ({
-      label: CONTROL_STYLE[type].label,
-      kind: 'normal',
-      controlType: type,
-    })
-  ),
+  { label: '通常', kind: 'normal', nodeLabel: '' },
+  { label: CONTROL_STYLE.function.label, kind: 'section', sectionType: 'function' },
+  { label: CONTROL_STYLE.class.label, kind: 'section', sectionType: 'class' },
 ];
+
+function getNodeRect(node: Node<FlowNodeData>): NodeRect | null {
+  const width =
+    node.width ?? (typeof node.style?.width === 'number' ? node.style.width : undefined);
+  const height =
+    node.height ?? (typeof node.style?.height === 'number' ? node.style.height : undefined);
+  if (!width || !height) return null;
+  const position = node.positionAbsolute ?? node.position;
+  return { x: position.x, y: position.y, width, height };
+}
+
+function findSectionAtPoint(
+  point: XYPosition,
+  sectionNodes: Node<SectionNodeData>[]
+): Node<SectionNodeData> | null {
+  let best: Node<SectionNodeData> | null = null;
+  let bestArea = Number.POSITIVE_INFINITY;
+  for (const section of sectionNodes) {
+    const rect = getNodeRect(section);
+    if (!rect) continue;
+    const inside =
+      point.x >= rect.x &&
+      point.x <= rect.x + rect.width &&
+      point.y >= rect.y &&
+      point.y <= rect.y + rect.height;
+    if (!inside) continue;
+    const area = rect.width * rect.height;
+    if (area < bestArea) {
+      best = section;
+      bestArea = area;
+    }
+  }
+  return best;
+}
 
 function getBaseNodeClass(nodeKind: NodeKind) {
   if (nodeKind === 'start') return 'bg-emerald-50';
@@ -111,18 +168,52 @@ function LogicNode({ data }: NodeProps<LogicNodeData>) {
       }}
     >
       {showLabel ? <div className="text-sm font-semibold">{label}</div> : null}
-      <Handle type="target" position={Position.Left} />
-      <Handle type="source" position={Position.Right} />
+      <Handle type="target" position={Position.Left} id="t-left" />
+      <Handle type="source" position={Position.Right} id="s-right" />
+      <Handle type="target" position={Position.Top} id="t-top" />
+      <Handle type="source" position={Position.Bottom} id="s-bottom" />
+      <Handle type="source" position={Position.Top} id="s-top" />
+      <Handle type="target" position={Position.Bottom} id="t-bottom" />
+      <Handle type="source" position={Position.Left} id="s-left" />
+      <Handle type="target" position={Position.Right} id="t-right" />
+    </div>
+  );
+}
+
+function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
+  const style = CONTROL_STYLE[data.sectionType];
+  return (
+    <div
+      className="relative h-full w-full rounded-xl border-2 border-dashed bg-white/80 p-3 text-sm text-gray-700 shadow-sm"
+      style={{ borderColor: style.color, backgroundColor: style.nodeBg ?? '#f8fafc' }}
+    >
+      <NodeResizer
+        isVisible={selected}
+        minWidth={SECTION_MIN_WIDTH}
+        minHeight={SECTION_MIN_HEIGHT}
+      />
+      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: style.color }}>
+        {style.label}
+      </div>
+      <Handle type="target" position={Position.Left} id="section-t-left" />
+      <Handle type="source" position={Position.Right} id="section-s-right" />
+      <Handle type="target" position={Position.Top} id="section-t-top" />
+      <Handle type="source" position={Position.Bottom} id="section-s-bottom" />
+      <Handle type="source" position={Position.Top} id="section-s-top" />
+      <Handle type="target" position={Position.Bottom} id="section-t-bottom" />
+      <Handle type="source" position={Position.Left} id="section-s-left" />
+      <Handle type="target" position={Position.Right} id="section-t-right" />
     </div>
   );
 }
 
 const nodeTypes = {
   logicNode: LogicNode,
+  sectionNode: SectionNode,
 };
 
 export default function FlowVisualization() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<LogicNodeData>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<FlowNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<LogicEdgeData>([]);
   const [pendingConnection, setPendingConnection] = useState<Connection | null>(null);
   const [pendingNodeClientPosition, setPendingNodeClientPosition] = useState<XYPosition | null>(
@@ -141,13 +232,13 @@ export default function FlowVisualization() {
   const debugEventCount = useRef(0);
   const lastPaneClickAt = useRef<number | null>(null);
 
-  const createNode = useCallback(
+  const createLogicNode = useCallback(
     (params: {
       kind: NodeKind;
       label: string;
       position: XYPosition;
       controlType?: ControlType;
-    }) => {
+    }): Node<LogicNodeData> => {
       const seq = nextNodeSeq.current++;
       return {
         id: `node-${seq}`,
@@ -159,7 +250,25 @@ export default function FlowVisualization() {
           seq,
           controlType: params.controlType,
         },
-      } satisfies Node<LogicNodeData>;
+      };
+    },
+    []
+  );
+
+  const createSectionNode = useCallback(
+    (params: { sectionType: SectionType; label: string; position: XYPosition }): Node<SectionNodeData> => {
+      const seq = nextNodeSeq.current++;
+      return {
+        id: `section-${seq}`,
+        type: 'sectionNode',
+        position: params.position,
+        style: { width: SECTION_DEFAULT_WIDTH, height: SECTION_DEFAULT_HEIGHT },
+        data: {
+          label: params.label,
+          sectionType: params.sectionType,
+          seq,
+        },
+      };
     },
     []
   );
@@ -240,7 +349,7 @@ export default function FlowVisualization() {
         label: style.label,
         style: {
           stroke: style.color,
-          strokeWidth: 2,
+          strokeWidth: EDGE_STROKE_WIDTH,
           strokeDasharray: style.edgeDash,
         },
         labelStyle: {
@@ -277,21 +386,104 @@ export default function FlowVisualization() {
       const instance = reactFlowInstance.current;
       if (!instance) return;
       const flowPosition = instance.screenToFlowPosition(pendingNodeClientPosition);
-      const newNode = createNode({
+      if (option.kind === 'section') {
+        if (!option.sectionType) {
+          setPendingNodeClientPosition(null);
+          return;
+        }
+        const newSection = createSectionNode({
+          sectionType: option.sectionType,
+          label: option.label,
+          position: flowPosition,
+        });
+        setNodes((currentNodes) => [newSection, ...currentNodes]);
+        setPendingNodeClientPosition(null);
+        return;
+      }
+
+      const sectionNodes = instance
+        .getNodes()
+        .filter((node): node is Node<SectionNodeData> => node.type === 'sectionNode');
+      const parentSection = findSectionAtPoint(flowPosition, sectionNodes);
+      const baseNode = createLogicNode({
         kind: option.kind,
-        label: option.label,
-        controlType: option.controlType,
+        label: option.nodeLabel ?? option.label,
         position: flowPosition,
       });
+      let newNode: Node<LogicNodeData> = baseNode;
+      if (parentSection) {
+        const parentRect = getNodeRect(parentSection);
+        if (parentRect) {
+          newNode = {
+            ...baseNode,
+            parentNode: parentSection.id,
+            extent: 'parent',
+            position: {
+              x: flowPosition.x - parentRect.x,
+              y: flowPosition.y - parentRect.y,
+            },
+          };
+        }
+      }
       setNodes((currentNodes) => [...currentNodes, newNode]);
       setPendingNodeClientPosition(null);
     },
-    [createNode, pendingNodeClientPosition, setNodes]
+    [createLogicNode, createSectionNode, pendingNodeClientPosition, setNodes]
   );
 
   const cancelNodeCreation = useCallback(() => {
     setPendingNodeClientPosition(null);
   }, []);
+
+  const onNodeDragStop = useCallback<NodeDragHandler>(
+    (_event, draggedNode) => {
+      if (draggedNode.type === 'sectionNode') return;
+      const instance = reactFlowInstance.current;
+      if (!instance) return;
+      const sectionNodes = instance
+        .getNodes()
+        .filter((node): node is Node<SectionNodeData> => node.type === 'sectionNode');
+      const draggedRect = getNodeRect(draggedNode);
+      const focusPoint = draggedRect
+        ? {
+            x: draggedRect.x + draggedRect.width / 2,
+            y: draggedRect.y + draggedRect.height / 2,
+          }
+        : draggedNode.positionAbsolute ?? draggedNode.position;
+      const parentSection = findSectionAtPoint(focusPoint, sectionNodes);
+
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => {
+          if (node.id !== draggedNode.id) return node;
+          if (parentSection) {
+            const parentRect = getNodeRect(parentSection);
+            if (!parentRect) return node;
+            const absolutePos = draggedNode.positionAbsolute ?? draggedNode.position;
+            return {
+              ...node,
+              parentNode: parentSection.id,
+              extent: 'parent',
+              position: {
+                x: absolutePos.x - parentRect.x,
+                y: absolutePos.y - parentRect.y,
+              },
+            };
+          }
+          if (node.parentNode) {
+            const absolutePos = draggedNode.positionAbsolute ?? draggedNode.position;
+            return {
+              ...node,
+              parentNode: undefined,
+              extent: undefined,
+              position: absolutePos,
+            };
+          }
+          return node;
+        })
+      );
+    },
+    [setNodes]
+  );
 
   const edgeModalContent = useMemo(() => {
     if (!pendingConnection) return null;
@@ -395,6 +587,7 @@ export default function FlowVisualization() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onNodeDragStop={onNodeDragStop}
         onPaneClick={onPaneClick}
         zoomOnDoubleClick={false}
         onInit={onInit}
