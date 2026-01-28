@@ -365,6 +365,8 @@ export default function FlowVisualization() {
         id: edgeId,
         source: pendingConnection.source,
         target: pendingConnection.target,
+        sourceHandle: pendingConnection.sourceHandle ?? undefined,
+        targetHandle: pendingConnection.targetHandle ?? undefined,
         label: style.label || undefined,
         style: {
           stroke: style.color,
