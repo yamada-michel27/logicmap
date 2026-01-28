@@ -164,6 +164,27 @@ function getBaseNodeClass(nodeKind: NodeKind) {
   return 'bg-white';
 }
 
+function getLogicNodeLabel(data: LogicNodeData) {
+  if (data.label && data.label.length > 0) return data.label;
+  if (data.nodeKind === 'start') return 'Start';
+  if (data.nodeKind === 'end') return 'End';
+  return '通常';
+}
+
+function getNodeDisplayLabel(node: Node<FlowNodeData>) {
+  if (node.type === 'sectionNode') {
+    const data = node.data as SectionNodeData;
+    return data.label || CONTROL_STYLE[data.sectionType].label;
+  }
+  return getLogicNodeLabel(node.data as LogicNodeData);
+}
+
+function isEventFromNodeOrEdge(event: ReactMouseEvent) {
+  const target = event.target;
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest('.react-flow__node, .react-flow__edge'));
+}
+
 function LogicNode({ data }: NodeProps<LogicNodeData>) {
   const controlStyle = data.controlType ? CONTROL_STYLE[data.controlType] : null;
   const label =
@@ -235,6 +256,14 @@ export default function FlowVisualization() {
   const [pendingNodeClientPosition, setPendingNodeClientPosition] = useState<XYPosition | null>(
     null
   );
+  const [pendingNodeDelete, setPendingNodeDelete] = useState<{ id: string; label: string } | null>(
+    null
+  );
+  const [pendingEdgeDelete, setPendingEdgeDelete] = useState<{
+    id: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const [selectedEdgeControl, setSelectedEdgeControl] =
     useState<ControlType>(DEFAULT_EDGE_CONTROL);
   const [debugEvent, setDebugEvent] = useState<{
@@ -293,6 +322,8 @@ export default function FlowVisualization() {
 
   const onConnect = useCallback((params: Connection) => {
     setPendingNodeClientPosition(null);
+    setPendingNodeDelete(null);
+    setPendingEdgeDelete(null);
     setSelectedEdgeControl(DEFAULT_EDGE_CONTROL);
     setPendingConnection(params);
   }, []);
@@ -300,6 +331,7 @@ export default function FlowVisualization() {
   const openNodeModalAtClient = useCallback((event: ReactMouseEvent) => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
+    if (isEventFromNodeOrEdge(event)) return;
     const rect = wrapper.getBoundingClientRect();
     if (
       event.clientX < rect.left ||
@@ -311,6 +343,8 @@ export default function FlowVisualization() {
     }
     event.preventDefault();
     setPendingConnection(null);
+    setPendingNodeDelete(null);
+    setPendingEdgeDelete(null);
     setPendingNodeClientPosition({ x: event.clientX, y: event.clientY });
   }, []);
 
@@ -458,6 +492,75 @@ export default function FlowVisualization() {
     setPendingNodeClientPosition(null);
   }, []);
 
+  const openNodeDeleteModal = useCallback((node: Node<FlowNodeData>) => {
+    setPendingConnection(null);
+    setPendingNodeClientPosition(null);
+    setPendingEdgeDelete(null);
+    setPendingNodeDelete({ id: node.id, label: getNodeDisplayLabel(node) });
+  }, []);
+
+  const deleteNodeById = useCallback(
+    (nodeId: string) => {
+      setEdges((currentEdges) =>
+        currentEdges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId)
+      );
+      setNodes((currentNodes) => {
+        const removedNode = currentNodes.find((node) => node.id === nodeId);
+        const removedIsSection = removedNode?.type === 'sectionNode';
+        return currentNodes
+          .filter((node) => node.id !== nodeId)
+          .map((node) => {
+            if (!removedIsSection || node.parentNode !== nodeId) return node;
+            const absolutePos = node.positionAbsolute ?? node.position;
+            return {
+              ...node,
+              parentNode: undefined,
+              extent: undefined,
+              position: absolutePos,
+            };
+          });
+      });
+      setPendingNodeDelete(null);
+    },
+    [setEdges, setNodes]
+  );
+
+  const onNodeDoubleClick = useCallback(
+    (event: ReactMouseEvent, node: Node<FlowNodeData>) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openNodeDeleteModal(node);
+    },
+    [openNodeDeleteModal]
+  );
+
+  const onEdgeDoubleClick = useCallback(
+    (event: ReactMouseEvent, edge: Edge<LogicEdgeData>) => {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = wrapper.getBoundingClientRect();
+      setPendingNodeClientPosition(null);
+      setPendingNodeDelete(null);
+      setPendingConnection(null);
+      setPendingEdgeDelete({
+        id: edge.id,
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      });
+    },
+    []
+  );
+
+  const deleteEdgeById = useCallback(
+    (edgeId: string) => {
+      setEdges((currentEdges) => currentEdges.filter((edge) => edge.id !== edgeId));
+      setPendingEdgeDelete(null);
+    },
+    [setEdges]
+  );
+
   const onEdgeControlChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     setSelectedEdgeControl(event.target.value as ControlType);
   }, []);
@@ -515,6 +618,25 @@ export default function FlowVisualization() {
     },
     [setNodes]
   );
+
+  const edgeDeleteContent = useMemo(() => {
+    if (!pendingEdgeDelete) return null;
+    return (
+      <div
+        className="absolute z-30"
+        style={{ left: pendingEdgeDelete.x - 10, top: pendingEdgeDelete.y - 10 }}
+      >
+        <button
+          type="button"
+          className="flex h-5 w-5 items-center justify-center rounded-full border border-rose-500 bg-white text-xs font-bold text-rose-600 shadow-sm hover:bg-rose-50"
+          aria-label="edge delete"
+          onClick={() => deleteEdgeById(pendingEdgeDelete.id)}
+        >
+          x
+        </button>
+      </div>
+    );
+  }, [deleteEdgeById, pendingEdgeDelete]);
 
   const edgeModalContent = useMemo(() => {
     if (!pendingConnection) return null;
@@ -601,6 +723,36 @@ export default function FlowVisualization() {
     );
   }, [applyNodeOption, cancelNodeCreation, pendingNodeClientPosition]);
 
+  const nodeDeleteContent = useMemo(() => {
+    if (!pendingNodeDelete) return null;
+    return (
+      <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+          <h3 className="text-lg font-semibold text-gray-900">ノードを削除</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            「{pendingNodeDelete.label}」を削除しますか？
+          </p>
+          <div className="mt-5 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              onClick={() => setPendingNodeDelete(null)}
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              className="rounded-md bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-500"
+              onClick={() => deleteNodeById(pendingNodeDelete.id)}
+            >
+              削除する
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }, [deleteNodeById, pendingNodeDelete]);
+
   return (
     <div
       className="relative h-full w-full"
@@ -634,6 +786,8 @@ export default function FlowVisualization() {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onNodeDragStop={onNodeDragStop}
+        onNodeDoubleClick={onNodeDoubleClick}
+        onEdgeDoubleClick={onEdgeDoubleClick}
         onPaneClick={onPaneClick}
         connectionMode={ConnectionMode.Loose}
         zoomOnDoubleClick={false}
@@ -645,8 +799,10 @@ export default function FlowVisualization() {
         <MiniMap />
         <Background gap={12} size={1} />
       </ReactFlow>
+      {edgeDeleteContent}
       {edgeModalContent}
       {nodeModalContent}
+      {nodeDeleteContent}
     </div>
   );
 }
