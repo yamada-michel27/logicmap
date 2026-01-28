@@ -66,6 +66,18 @@ type NodeRect = {
   height: number;
 };
 
+function toRgba(hex: string, alpha: number) {
+  const normalized = hex.replace('#', '');
+  if (normalized.length !== 6) return `rgba(248, 250, 252, ${alpha})`;
+  const r = Number.parseInt(normalized.slice(0, 2), 16);
+  const g = Number.parseInt(normalized.slice(2, 4), 16);
+  const b = Number.parseInt(normalized.slice(4, 6), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
+    return `rgba(248, 250, 252, ${alpha})`;
+  }
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 const CONTROL_STYLE: Record<
   ControlType,
   { label: string; color: string; edgeDash?: string; nodeBg?: string }
@@ -172,20 +184,17 @@ function LogicNode({ data }: NodeProps<LogicNodeData>) {
       <Handle type="source" position={Position.Right} id="s-right" />
       <Handle type="target" position={Position.Top} id="t-top" />
       <Handle type="source" position={Position.Bottom} id="s-bottom" />
-      <Handle type="source" position={Position.Top} id="s-top" />
-      <Handle type="target" position={Position.Bottom} id="t-bottom" />
-      <Handle type="source" position={Position.Left} id="s-left" />
-      <Handle type="target" position={Position.Right} id="t-right" />
     </div>
   );
 }
 
 function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
   const style = CONTROL_STYLE[data.sectionType];
+  const sectionBg = toRgba(style.nodeBg ?? '#f8fafc', 0.45);
   return (
     <div
-      className="relative h-full w-full rounded-xl border-2 border-dashed bg-white/80 p-3 text-sm text-gray-700 shadow-sm"
-      style={{ borderColor: style.color, backgroundColor: style.nodeBg ?? '#f8fafc' }}
+      className="relative h-full w-full rounded-xl border-2 border-dashed p-3 text-sm text-gray-700 shadow-sm"
+      style={{ borderColor: style.color, backgroundColor: sectionBg }}
     >
       <NodeResizer
         isVisible={selected}
@@ -199,10 +208,6 @@ function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
       <Handle type="source" position={Position.Right} id="section-s-right" />
       <Handle type="target" position={Position.Top} id="section-t-top" />
       <Handle type="source" position={Position.Bottom} id="section-s-bottom" />
-      <Handle type="source" position={Position.Top} id="section-s-top" />
-      <Handle type="target" position={Position.Bottom} id="section-t-bottom" />
-      <Handle type="source" position={Position.Left} id="section-s-left" />
-      <Handle type="target" position={Position.Right} id="section-t-right" />
     </div>
   );
 }
