@@ -1,6 +1,13 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import {
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -16,13 +23,19 @@ import ReactFlow, {
   Position,
   XYPosition,
   ReactFlowInstance,
+  ConnectionMode,
+  type NodeDragHandler,
 } from 'reactflow';
+import { NodeResizer } from '@reactflow/node-resizer';
 
 import 'reactflow/dist/style.css';
+import '@reactflow/node-resizer/dist/style.css';
 
 type NodeKind = 'start' | 'end' | 'normal';
+type SectionType = 'function' | 'class';
 
-const CONTROL_TYPES = [
+const EDGE_CONTROL_TYPES = [
+  'flow',
   'while',
   'for',
   'if-else',
@@ -33,7 +46,7 @@ const CONTROL_TYPES = [
   'class',
 ] as const;
 
-type ControlType = (typeof CONTROL_TYPES)[number];
+type ControlType = (typeof EDGE_CONTROL_TYPES)[number];
 
 type LogicNodeData = {
   label?: string;
@@ -42,14 +55,43 @@ type LogicNodeData = {
   controlType?: ControlType;
 };
 
+type SectionNodeData = {
+  label: string;
+  sectionType: SectionType;
+  seq: number;
+  controlType?: ControlType;
+};
+
+type FlowNodeData = LogicNodeData | SectionNodeData;
+
 type LogicEdgeData = {
   controlType: ControlType;
 };
 
+type NodeRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+function toRgba(hex: string, alpha: number) {
+  const normalized = hex.replace('#', '');
+  if (normalized.length !== 6) return `rgba(248, 250, 252, ${alpha})`;
+  const r = Number.parseInt(normalized.slice(0, 2), 16);
+  const g = Number.parseInt(normalized.slice(2, 4), 16);
+  const b = Number.parseInt(normalized.slice(4, 6), 16);
+  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
+    return `rgba(248, 250, 252, ${alpha})`;
+  }
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 const CONTROL_STYLE: Record<
   ControlType,
-  { label: string; color: string; edgeDash?: string; nodeBg?: string }
+  { label: string; color: string; edgeDash?: string; nodeBg?: string; modalLabel?: string }
 > = {
+  flow: { label: '', color: '#64748b', modalLabel: '通常（ラベルなし）' },
   while: { label: 'while', color: '#2563eb', edgeDash: '6 4' },
   for: { label: 'for', color: '#0f766e', edgeDash: '6 4' },
   'if-else': { label: 'if-else', color: '#4f46e5' },
@@ -60,23 +102,61 @@ const CONTROL_STYLE: Record<
   class: { label: 'class', color: '#1d4ed8', nodeBg: '#eff6ff' },
 };
 
+const SECTION_MIN_WIDTH = 240;
+const SECTION_MIN_HEIGHT = 160;
+const SECTION_DEFAULT_WIDTH = 320;
+const SECTION_DEFAULT_HEIGHT = 220;
+const EDGE_STROKE_WIDTH = 3;
+const DEFAULT_EDGE_CONTROL: ControlType = 'flow';
+
 type NodeOption = {
   label: string;
-  kind: NodeKind;
-  controlType?: ControlType;
+  kind: NodeKind | 'section';
+  sectionType?: SectionType;
+  nodeLabel?: string;
 };
 
 const NODE_OPTIONS: NodeOption[] = [
   { label: 'Start', kind: 'start' },
   { label: 'End', kind: 'end' },
-  ...CONTROL_TYPES.map(
-    (type): NodeOption => ({
-      label: CONTROL_STYLE[type].label,
-      kind: 'normal',
-      controlType: type,
-    })
-  ),
+  { label: '通常', kind: 'normal', nodeLabel: '' },
+  { label: CONTROL_STYLE.function.label, kind: 'section', sectionType: 'function' },
+  { label: CONTROL_STYLE.class.label, kind: 'section', sectionType: 'class' },
 ];
+
+function getNodeRect(node: Node<FlowNodeData>): NodeRect | null {
+  const width =
+    node.width ?? (typeof node.style?.width === 'number' ? node.style.width : undefined);
+  const height =
+    node.height ?? (typeof node.style?.height === 'number' ? node.style.height : undefined);
+  if (!width || !height) return null;
+  const position = node.positionAbsolute ?? node.position;
+  return { x: position.x, y: position.y, width, height };
+}
+
+function findSectionAtPoint(
+  point: XYPosition,
+  sectionNodes: Node<SectionNodeData>[]
+): Node<SectionNodeData> | null {
+  let best: Node<SectionNodeData> | null = null;
+  let bestArea = Number.POSITIVE_INFINITY;
+  for (const section of sectionNodes) {
+    const rect = getNodeRect(section);
+    if (!rect) continue;
+    const inside =
+      point.x >= rect.x &&
+      point.x <= rect.x + rect.width &&
+      point.y >= rect.y &&
+      point.y <= rect.y + rect.height;
+    if (!inside) continue;
+    const area = rect.width * rect.height;
+    if (area < bestArea) {
+      best = section;
+      bestArea = area;
+    }
+  }
+  return best;
+}
 
 function getBaseNodeClass(nodeKind: NodeKind) {
   if (nodeKind === 'start') return 'bg-emerald-50';
@@ -111,23 +191,52 @@ function LogicNode({ data }: NodeProps<LogicNodeData>) {
       }}
     >
       {showLabel ? <div className="text-sm font-semibold">{label}</div> : null}
-      <Handle type="target" position={Position.Left} />
-      <Handle type="source" position={Position.Right} />
+      <Handle type="source" position={Position.Left} id="h-left" />
+      <Handle type="source" position={Position.Right} id="h-right" />
+      <Handle type="source" position={Position.Top} id="h-top" />
+      <Handle type="source" position={Position.Bottom} id="h-bottom" />
+    </div>
+  );
+}
+
+function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
+  const style = CONTROL_STYLE[data.sectionType];
+  const sectionBg = toRgba(style.nodeBg ?? '#f8fafc', 0.45);
+  return (
+    <div
+      className="relative h-full w-full rounded-xl border-2 border-dashed p-3 text-sm text-gray-700 shadow-sm"
+      style={{ borderColor: style.color, backgroundColor: sectionBg }}
+    >
+      <NodeResizer
+        isVisible={selected}
+        minWidth={SECTION_MIN_WIDTH}
+        minHeight={SECTION_MIN_HEIGHT}
+      />
+      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: style.color }}>
+        {style.label}
+      </div>
+      <Handle type="source" position={Position.Left} id="section-h-left" />
+      <Handle type="source" position={Position.Right} id="section-h-right" />
+      <Handle type="source" position={Position.Top} id="section-h-top" />
+      <Handle type="source" position={Position.Bottom} id="section-h-bottom" />
     </div>
   );
 }
 
 const nodeTypes = {
   logicNode: LogicNode,
+  sectionNode: SectionNode,
 };
 
 export default function FlowVisualization() {
-  const [nodes, setNodes, onNodesChange] = useNodesState<LogicNodeData>([]);
+  const [nodes, setNodes, onNodesChange] = useNodesState<FlowNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<LogicEdgeData>([]);
   const [pendingConnection, setPendingConnection] = useState<Connection | null>(null);
   const [pendingNodeClientPosition, setPendingNodeClientPosition] = useState<XYPosition | null>(
     null
   );
+  const [selectedEdgeControl, setSelectedEdgeControl] =
+    useState<ControlType>(DEFAULT_EDGE_CONTROL);
   const [debugEvent, setDebugEvent] = useState<{
     type: string;
     x: number;
@@ -141,13 +250,13 @@ export default function FlowVisualization() {
   const debugEventCount = useRef(0);
   const lastPaneClickAt = useRef<number | null>(null);
 
-  const createNode = useCallback(
+  const createLogicNode = useCallback(
     (params: {
       kind: NodeKind;
       label: string;
       position: XYPosition;
       controlType?: ControlType;
-    }) => {
+    }): Node<LogicNodeData> => {
       const seq = nextNodeSeq.current++;
       return {
         id: `node-${seq}`,
@@ -159,13 +268,32 @@ export default function FlowVisualization() {
           seq,
           controlType: params.controlType,
         },
-      } satisfies Node<LogicNodeData>;
+      };
+    },
+    []
+  );
+
+  const createSectionNode = useCallback(
+    (params: { sectionType: SectionType; label: string; position: XYPosition }): Node<SectionNodeData> => {
+      const seq = nextNodeSeq.current++;
+      return {
+        id: `section-${seq}`,
+        type: 'sectionNode',
+        position: params.position,
+        style: { width: SECTION_DEFAULT_WIDTH, height: SECTION_DEFAULT_HEIGHT },
+        data: {
+          label: params.label,
+          sectionType: params.sectionType,
+          seq,
+        },
+      };
     },
     []
   );
 
   const onConnect = useCallback((params: Connection) => {
     setPendingNodeClientPosition(null);
+    setSelectedEdgeControl(DEFAULT_EDGE_CONTROL);
     setPendingConnection(params);
   }, []);
 
@@ -237,10 +365,12 @@ export default function FlowVisualization() {
         id: edgeId,
         source: pendingConnection.source,
         target: pendingConnection.target,
-        label: style.label,
+        sourceHandle: pendingConnection.sourceHandle ?? undefined,
+        targetHandle: pendingConnection.targetHandle ?? undefined,
+        label: style.label || undefined,
         style: {
           stroke: style.color,
-          strokeWidth: 2,
+          strokeWidth: EDGE_STROKE_WIDTH,
           strokeDasharray: style.edgeDash,
         },
         labelStyle: {
@@ -251,17 +381,19 @@ export default function FlowVisualization() {
       };
 
       setEdges((eds) => addEdge(edge, eds));
-      setNodes((currentNodes) =>
-        currentNodes.map((node) => {
-          if (node.id === pendingConnection.source || node.id === pendingConnection.target) {
-            return {
-              ...node,
-              data: { ...node.data, controlType },
-            };
-          }
-          return node;
-        })
-      );
+      if (controlType !== 'flow') {
+        setNodes((currentNodes) =>
+          currentNodes.map((node) => {
+            if (node.id === pendingConnection.source || node.id === pendingConnection.target) {
+              return {
+                ...node,
+                data: { ...node.data, controlType },
+              };
+            }
+            return node;
+          })
+        );
+      }
       setPendingConnection(null);
     },
     [pendingConnection, setEdges, setNodes]
@@ -277,21 +409,112 @@ export default function FlowVisualization() {
       const instance = reactFlowInstance.current;
       if (!instance) return;
       const flowPosition = instance.screenToFlowPosition(pendingNodeClientPosition);
-      const newNode = createNode({
+      if (option.kind === 'section') {
+        if (!option.sectionType) {
+          setPendingNodeClientPosition(null);
+          return;
+        }
+        const newSection = createSectionNode({
+          sectionType: option.sectionType,
+          label: option.label,
+          position: flowPosition,
+        });
+        setNodes((currentNodes) => [newSection, ...currentNodes]);
+        setPendingNodeClientPosition(null);
+        return;
+      }
+
+      const sectionNodes = instance
+        .getNodes()
+        .filter((node): node is Node<SectionNodeData> => node.type === 'sectionNode');
+      const parentSection = findSectionAtPoint(flowPosition, sectionNodes);
+      const baseNode = createLogicNode({
         kind: option.kind,
-        label: option.label,
-        controlType: option.controlType,
+        label: option.nodeLabel ?? option.label,
         position: flowPosition,
       });
+      let newNode: Node<LogicNodeData> = baseNode;
+      if (parentSection) {
+        const parentRect = getNodeRect(parentSection);
+        if (parentRect) {
+          newNode = {
+            ...baseNode,
+            parentNode: parentSection.id,
+            extent: 'parent',
+            position: {
+              x: flowPosition.x - parentRect.x,
+              y: flowPosition.y - parentRect.y,
+            },
+          };
+        }
+      }
       setNodes((currentNodes) => [...currentNodes, newNode]);
       setPendingNodeClientPosition(null);
     },
-    [createNode, pendingNodeClientPosition, setNodes]
+    [createLogicNode, createSectionNode, pendingNodeClientPosition, setNodes]
   );
 
   const cancelNodeCreation = useCallback(() => {
     setPendingNodeClientPosition(null);
   }, []);
+
+  const onEdgeControlChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
+    setSelectedEdgeControl(event.target.value as ControlType);
+  }, []);
+
+  const applySelectedControl = useCallback(() => {
+    applyControlType(selectedEdgeControl);
+  }, [applyControlType, selectedEdgeControl]);
+
+  const onNodeDragStop = useCallback<NodeDragHandler>(
+    (_event, draggedNode) => {
+      if (draggedNode.type === 'sectionNode') return;
+      const instance = reactFlowInstance.current;
+      if (!instance) return;
+      const sectionNodes = instance
+        .getNodes()
+        .filter((node): node is Node<SectionNodeData> => node.type === 'sectionNode');
+      const draggedRect = getNodeRect(draggedNode);
+      const focusPoint = draggedRect
+        ? {
+            x: draggedRect.x + draggedRect.width / 2,
+            y: draggedRect.y + draggedRect.height / 2,
+          }
+        : draggedNode.positionAbsolute ?? draggedNode.position;
+      const parentSection = findSectionAtPoint(focusPoint, sectionNodes);
+
+      setNodes((currentNodes) =>
+        currentNodes.map((node) => {
+          if (node.id !== draggedNode.id) return node;
+          if (parentSection) {
+            const parentRect = getNodeRect(parentSection);
+            if (!parentRect) return node;
+            const absolutePos = draggedNode.positionAbsolute ?? draggedNode.position;
+            return {
+              ...node,
+              parentNode: parentSection.id,
+              extent: 'parent',
+              position: {
+                x: absolutePos.x - parentRect.x,
+                y: absolutePos.y - parentRect.y,
+              },
+            };
+          }
+          if (node.parentNode) {
+            const absolutePos = draggedNode.positionAbsolute ?? draggedNode.position;
+            return {
+              ...node,
+              parentNode: undefined,
+              extent: undefined,
+              position: absolutePos,
+            };
+          }
+          return node;
+        })
+      );
+    },
+    [setNodes]
+  );
 
   const edgeModalContent = useMemo(() => {
     if (!pendingConnection) return null;
@@ -302,19 +525,21 @@ export default function FlowVisualization() {
           <p className="mt-1 text-sm text-gray-600">
             接続したエッジの制御構文を選んでください。キャンセルすると接続は破棄されます。
           </p>
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            {CONTROL_TYPES.map((type) => (
-              <button
-                key={type}
-                type="button"
-                className="rounded-md border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50"
-                onClick={() => applyControlType(type)}
-              >
-                {CONTROL_STYLE[type].label}
-              </button>
-            ))}
+          <div className="mt-4">
+            <label className="text-xs font-semibold text-gray-700">エッジ種別</label>
+            <select
+              value={selectedEdgeControl}
+              className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+              onChange={onEdgeControlChange}
+            >
+              {EDGE_CONTROL_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {CONTROL_STYLE[type].modalLabel ?? CONTROL_STYLE[type].label}
+                </option>
+              ))}
+            </select>
           </div>
-          <div className="mt-5 flex justify-end">
+          <div className="mt-5 flex items-center justify-end gap-2">
             <button
               type="button"
               className="rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
@@ -322,11 +547,24 @@ export default function FlowVisualization() {
             >
               キャンセル
             </button>
+            <button
+              type="button"
+              className="rounded-md bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+              onClick={applySelectedControl}
+            >
+              適用
+            </button>
           </div>
         </div>
       </div>
     );
-  }, [applyControlType, cancelConnection, pendingConnection]);
+  }, [
+    applySelectedControl,
+    cancelConnection,
+    onEdgeControlChange,
+    pendingConnection,
+    selectedEdgeControl,
+  ]);
 
   const nodeModalContent = useMemo(() => {
     if (!pendingNodeClientPosition) return null;
@@ -395,7 +633,9 @@ export default function FlowVisualization() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onNodeDragStop={onNodeDragStop}
         onPaneClick={onPaneClick}
+        connectionMode={ConnectionMode.Loose}
         zoomOnDoubleClick={false}
         onInit={onInit}
         nodeTypes={nodeTypes}
