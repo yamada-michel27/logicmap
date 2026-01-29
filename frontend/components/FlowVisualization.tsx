@@ -92,7 +92,30 @@ type SectionNodeData = {
   validations?: ValidationRule[];
 };
 
-type FlowNodeData = LogicNodeData | SectionNodeData;
+const STAMP_OPTIONS = [
+  { id: 'question', emoji: '❓', label: '疑問' },
+  { id: 'idea', emoji: '💡', label: 'アイデア' },
+  { id: 'warn', emoji: '⚠️', label: '注意' },
+  { id: 'check', emoji: '✅', label: '確認' },
+  { id: 'test', emoji: '🧪', label: '検証' },
+  { id: 'todo', emoji: '📝', label: 'TODO' },
+  { id: 'consult', emoji: '🚩', label: '要相談' },
+] as const;
+
+type StampType = (typeof STAMP_OPTIONS)[number]['id'];
+
+type MemoNodeData = {
+  text: string;
+  seq: number;
+};
+
+type StampNodeData = {
+  stamp: StampType;
+  seq: number;
+  onDelete?: (nodeId: string) => void;
+};
+
+type FlowNodeData = LogicNodeData | SectionNodeData | MemoNodeData | StampNodeData;
 
 type LogicEdgeData = {
   controlType: EdgeControlType;
@@ -100,6 +123,7 @@ type LogicEdgeData = {
   note?: string;
   validations?: ValidationRule[];
   parallelOffset?: number;
+  onEdit?: (edgeId: string) => void;
 };
 
 type NodeRect = {
@@ -147,8 +171,14 @@ const SECTION_MIN_WIDTH = 240;
 const SECTION_MIN_HEIGHT = 160;
 const SECTION_DEFAULT_WIDTH = 320;
 const SECTION_DEFAULT_HEIGHT = 220;
+const MEMO_MIN_WIDTH = 180;
+const MEMO_MIN_HEIGHT = 120;
+const MEMO_DEFAULT_WIDTH = 260;
+const MEMO_DEFAULT_HEIGHT = 180;
+const STAMP_SIZE = 48;
 const EDGE_STROKE_WIDTH = 3;
 const EDGE_PARALLEL_OFFSET = 24;
+const EDGE_HIT_RADIUS = 28;
 const INSTANCE_OFFSET_X = 220;
 const INSTANCE_OFFSET_Y = 80;
 const DEFAULT_EDGE_CONTROL: EdgeControlType = 'flow';
@@ -232,6 +262,17 @@ function getNodeRect(node: Node<FlowNodeData>): NodeRect | null {
   return { x: position.x, y: position.y, width, height };
 }
 
+function getHandlePoint(rect: NodeRect, handleId?: string | null) {
+  const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+  if (!handleId) return center;
+  const id = handleId.toLowerCase();
+  if (id.includes('left')) return { x: rect.x, y: rect.y + rect.height / 2 };
+  if (id.includes('right')) return { x: rect.x + rect.width, y: rect.y + rect.height / 2 };
+  if (id.includes('top')) return { x: rect.x + rect.width / 2, y: rect.y };
+  if (id.includes('bottom')) return { x: rect.x + rect.width / 2, y: rect.y + rect.height };
+  return center;
+}
+
 function findSectionAtPoint(
   point: XYPosition,
   sectionNodes: Node<SectionNodeData>[]
@@ -274,6 +315,8 @@ function getNodeDisplayLabel(node: Node<FlowNodeData>) {
     const data = node.data as SectionNodeData;
     return data.label || CONTROL_STYLE[data.sectionType].label;
   }
+  if (node.type === 'memoNode') return 'メモ';
+  if (node.type === 'stampNode') return 'スタンプ';
   return getLogicNodeLabel(node.data as LogicNodeData);
 }
 
@@ -292,6 +335,7 @@ function getNodeOptionForNode(node: Node<FlowNodeData>): NodeOption | null {
       ) ?? null
     );
   }
+  if (node.type !== 'logicNode') return null;
   const data = node.data as LogicNodeData;
   return NODE_OPTIONS.find((option) => option.kind === data.nodeKind) ?? null;
 }
@@ -478,6 +522,7 @@ function ensureEdgeData(edge: Edge<LogicEdgeData>): LogicEdgeData {
     note: data.note,
     validations: data.validations,
     parallelOffset: data.parallelOffset ?? 0,
+    onEdit: data.onEdit,
   };
 }
 
@@ -602,6 +647,7 @@ function LogicEdge({
   const label = data
     ? buildEdgeLabel(data.controlType, data.condition, data.note, data.validations)
     : undefined;
+  const hasInteractiveLabel = Boolean(label) || Boolean(data?.onEdit);
 
   return (
     <>
@@ -612,16 +658,21 @@ function LogicEdge({
         markerEnd={markerEnd}
         markerStart={markerStart}
       />
-      {label ? (
+      {hasInteractiveLabel ? (
         <EdgeLabelRenderer>
           <div
-            className="nodrag nopan"
+            className="nodrag nopan cursor-pointer"
             style={{
               position: 'absolute',
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
             }}
+            onDoubleClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              data?.onEdit?.(id);
+            }}
           >
-            {label}
+            {label ?? <div className="h-6 w-6" />}
           </div>
         </EdgeLabelRenderer>
       ) : null}
@@ -669,6 +720,7 @@ function buildNodeFormFromNode(node: Node<FlowNodeData>): NodeFormState {
         : [],
     };
   }
+  if (node.type !== 'logicNode') return base;
   const data = node.data as LogicNodeData;
   return {
     ...base,
@@ -717,6 +769,42 @@ function LogicNode({ data }: NodeProps<LogicNodeData>) {
       <Handle type="source" position={Position.Right} id="h-right" />
       <Handle type="source" position={Position.Top} id="h-top" />
       <Handle type="source" position={Position.Bottom} id="h-bottom" />
+    </div>
+  );
+}
+
+function MemoNode({ data, selected }: NodeProps<MemoNodeData>) {
+  return (
+    <div className="relative h-full w-full rounded-lg border border-amber-200 bg-amber-50/90 p-3 text-sm text-gray-900 shadow-sm">
+      <NodeResizer isVisible={selected} minWidth={MEMO_MIN_WIDTH} minHeight={MEMO_MIN_HEIGHT} />
+      <div className="text-xs font-semibold text-amber-700">メモ</div>
+      {data.text?.trim().length > 0 ? (
+        <div className="mt-2 whitespace-pre-wrap text-sm text-gray-900">{data.text}</div>
+      ) : (
+        <div className="mt-2 text-xs text-amber-600">内容を入力してください</div>
+      )}
+    </div>
+  );
+}
+
+function StampNode({ id, data }: NodeProps<StampNodeData>) {
+  const stamp = STAMP_OPTIONS.find((option) => option.id === data.stamp);
+  return (
+    <div className="group relative flex h-full w-full items-center justify-center rounded-full border border-gray-200 bg-white/90 shadow-sm">
+      <button
+        type="button"
+        className="absolute -right-2 -top-2 hidden h-5 w-5 items-center justify-center rounded-full border border-gray-200 bg-white text-[10px] text-gray-600 shadow-sm group-hover:flex"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          data.onDelete?.(id);
+        }}
+      >
+        ×
+      </button>
+      <div className="text-2xl" aria-label={stamp?.label ?? 'スタンプ'}>
+        {stamp?.emoji ?? '❓'}
+      </div>
     </div>
   );
 }
@@ -860,6 +948,8 @@ function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
 const nodeTypes = {
   logicNode: LogicNode,
   sectionNode: SectionNode,
+  memoNode: MemoNode,
+  stampNode: StampNode,
 };
 
 const edgeTypes = {
@@ -873,16 +963,22 @@ export default function FlowVisualization() {
   const [pendingNodeClientPosition, setPendingNodeClientPosition] = useState<XYPosition | null>(
     null
   );
+  const [pendingMemoClientPosition, setPendingMemoClientPosition] = useState<XYPosition | null>(
+    null
+  );
   const [pendingNodeDelete, setPendingNodeDelete] = useState<{ id: string; label: string } | null>(
     null
   );
   const [pendingNodeEdit, setPendingNodeEdit] = useState<{ id: string } | null>(null);
+  const [pendingMemoEdit, setPendingMemoEdit] = useState<{ id: string } | null>(null);
   const [pendingEdgeEdit, setPendingEdgeEdit] = useState<{ id: string } | null>(null);
   const [nodeModalOption, setNodeModalOption] = useState<NodeOption | null>(null);
   const [nodeForm, setNodeForm] = useState<NodeFormState>({ ...EMPTY_NODE_FORM });
+  const [memoText, setMemoText] = useState('');
   const [selectedEdgeControl, setSelectedEdgeControl] =
     useState<EdgeControlType>(DEFAULT_EDGE_CONTROL);
   const [edgeForm, setEdgeForm] = useState<EdgeFormState>({ ...EMPTY_EDGE_FORM });
+  const [pendingStamp, setPendingStamp] = useState<StampType | null>(null);
   const [debugEvent, setDebugEvent] = useState<{
     type: string;
     x: number;
@@ -978,11 +1074,47 @@ export default function FlowVisualization() {
     []
   );
 
+  const createMemoNode = useCallback(
+    (params: { text: string; position: XYPosition }): Node<MemoNodeData> => {
+      const seq = nextNodeSeq.current++;
+      return {
+        id: `memo-${seq}`,
+        type: 'memoNode',
+        position: params.position,
+        style: { width: MEMO_DEFAULT_WIDTH, height: MEMO_DEFAULT_HEIGHT },
+        data: {
+          text: params.text,
+          seq,
+        },
+      };
+    },
+    []
+  );
+
+  const createStampNode = useCallback(
+    (params: { stamp: StampType; position: XYPosition }): Node<StampNodeData> => {
+      const seq = nextNodeSeq.current++;
+      return {
+        id: `stamp-${seq}`,
+        type: 'stampNode',
+        position: params.position,
+        style: { width: STAMP_SIZE, height: STAMP_SIZE },
+        data: {
+          stamp: params.stamp,
+          seq,
+        },
+      };
+    },
+    []
+  );
+
   const onConnect = useCallback((params: Connection) => {
     setPendingNodeClientPosition(null);
     setPendingNodeDelete(null);
     setPendingNodeEdit(null);
     setPendingEdgeEdit(null);
+    setPendingMemoEdit(null);
+    setPendingMemoClientPosition(null);
     setSelectedEdgeControl(DEFAULT_EDGE_CONTROL);
     setEdgeForm({ ...EMPTY_EDGE_FORM });
     setPendingConnection(params);
@@ -1030,6 +1162,9 @@ export default function FlowVisualization() {
     setPendingNodeDelete(null);
     setPendingNodeEdit(null);
     setPendingEdgeEdit(null);
+    setPendingMemoEdit(null);
+    setPendingMemoClientPosition(null);
+    setPendingStamp(null);
     setNodeModalOption(null);
     setNodeForm({ ...EMPTY_NODE_FORM });
     setPendingNodeClientPosition({ x: event.clientX, y: event.clientY });
@@ -1041,6 +1176,48 @@ export default function FlowVisualization() {
     },
     [openNodeModalAtClient]
   );
+
+  const openMemoCreateModal = useCallback(() => {
+    const wrapper = wrapperRef.current;
+    const instance = reactFlowInstance.current;
+    if (!wrapper || !instance) return;
+    const rect = wrapper.getBoundingClientRect();
+    const center = {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    };
+    setPendingConnection(null);
+    setPendingNodeClientPosition(null);
+    setPendingNodeDelete(null);
+    setPendingNodeEdit(null);
+    setPendingEdgeEdit(null);
+    setPendingMemoEdit(null);
+    setPendingStamp(null);
+    setNodeModalOption(null);
+    setNodeForm({ ...EMPTY_NODE_FORM });
+    setPendingMemoClientPosition(center);
+    setMemoText('');
+  }, []);
+
+  const openMemoEditModal = useCallback((node: Node<MemoNodeData>) => {
+    setPendingConnection(null);
+    setPendingNodeClientPosition(null);
+    setPendingNodeDelete(null);
+    setPendingNodeEdit(null);
+    setPendingEdgeEdit(null);
+    setPendingMemoClientPosition(null);
+    setPendingStamp(null);
+    setNodeModalOption(null);
+    setNodeForm({ ...EMPTY_NODE_FORM });
+    setMemoText(node.data.text ?? '');
+    setPendingMemoEdit({ id: node.id });
+  }, []);
+
+  const cancelMemoModal = useCallback(() => {
+    setPendingMemoClientPosition(null);
+    setPendingMemoEdit(null);
+    setMemoText('');
+  }, []);
 
   const onInit = useCallback((instance: ReactFlowInstance) => {
     reactFlowInstance.current = instance;
@@ -1065,13 +1242,25 @@ export default function FlowVisualization() {
 
   const onPaneClick = useCallback(
     (event: ReactMouseEvent) => {
+      if (pendingStamp) {
+        const instance = reactFlowInstance.current;
+        if (!instance) return;
+        const flowPosition = instance.screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        });
+        const stampNode = createStampNode({ stamp: pendingStamp, position: flowPosition });
+        setNodes((currentNodes) => [...currentNodes, stampNode]);
+        setPendingStamp(null);
+        return;
+      }
       const now = Date.now();
       const lastClick = lastPaneClickAt.current;
       const isDoubleClick = lastClick !== null && now - lastClick < 320;
       lastPaneClickAt.current = now;
       recordDebugEvent(isDoubleClick ? 'pane double click' : 'pane click', event);
     },
-    [recordDebugEvent]
+    [createStampNode, pendingStamp, recordDebugEvent, setNodes]
   );
 
   const applyControlType = useCallback(
@@ -1410,6 +1599,8 @@ export default function FlowVisualization() {
     setPendingNodeClientPosition(null);
     setPendingNodeEdit(null);
     setPendingEdgeEdit(null);
+    setPendingMemoEdit(null);
+    setPendingMemoClientPosition(null);
     setNodeModalOption(null);
     setNodeForm({ ...EMPTY_NODE_FORM });
     setPendingNodeDelete({ id: node.id, label: getNodeDisplayLabel(node) });
@@ -1420,6 +1611,8 @@ export default function FlowVisualization() {
     setPendingNodeClientPosition(null);
     setPendingNodeDelete(null);
     setPendingEdgeEdit(null);
+    setPendingMemoEdit(null);
+    setPendingMemoClientPosition(null);
     setNodeModalOption(getNodeOptionForNode(node));
     setNodeForm(buildNodeFormFromNode(node));
     setPendingNodeEdit({ id: node.id });
@@ -1462,6 +1655,9 @@ export default function FlowVisualization() {
           });
       });
       setPendingNodeDelete(null);
+      setPendingMemoEdit(null);
+      setPendingMemoClientPosition(null);
+      setMemoText('');
     },
     [nodes, setEdges, setNodes]
   );
@@ -1512,33 +1708,120 @@ export default function FlowVisualization() {
     [createLogicNode, nodes, setEdges, setNodes]
   );
 
+  const findEdgeNearPointInSection = useCallback(
+    (sectionId: string, point: XYPosition): Edge<LogicEdgeData> | null => {
+      const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+      let closest: Edge<LogicEdgeData> | null = null;
+      let bestDistance = EDGE_HIT_RADIUS + 1;
+      const isInSection = (node?: Node<FlowNodeData>) =>
+        Boolean(node) && (node?.id === sectionId || node?.parentNode === sectionId);
+
+      edges.forEach((edge) => {
+        const sourceNode = nodeMap.get(edge.source);
+        const targetNode = nodeMap.get(edge.target);
+        if (!isInSection(sourceNode) || !isInSection(targetNode)) return;
+        if (!sourceNode || !targetNode) return;
+        const sourceRect = getNodeRect(sourceNode);
+        const targetRect = getNodeRect(targetNode);
+        if (!sourceRect || !targetRect) return;
+        const sourcePoint = getHandlePoint(sourceRect, edge.sourceHandle);
+        const targetPoint = getHandlePoint(targetRect, edge.targetHandle);
+        const mid = {
+          x: (sourcePoint.x + targetPoint.x) / 2,
+          y: (sourcePoint.y + targetPoint.y) / 2,
+        };
+        const distance = Math.hypot(point.x - mid.x, point.y - mid.y);
+        if (distance <= EDGE_HIT_RADIUS && distance < bestDistance) {
+          bestDistance = distance;
+          closest = edge;
+        }
+      });
+
+      return closest;
+    },
+    [edges, nodes]
+  );
+
   const onNodeDoubleClick = useCallback(
     (event: ReactMouseEvent, node: Node<FlowNodeData>) => {
       event.preventDefault();
       event.stopPropagation();
+      if (node.type === 'memoNode') {
+        openMemoEditModal(node as Node<MemoNodeData>);
+        return;
+      }
+      if (node.type === 'stampNode') return;
+      if (node.type === 'sectionNode') {
+        const instance = reactFlowInstance.current;
+        if (instance) {
+          const flowPoint = instance.screenToFlowPosition({
+            x: event.clientX,
+            y: event.clientY,
+          });
+          const hitEdge = findEdgeNearPointInSection(node.id, flowPoint);
+          if (hitEdge) {
+            setPendingNodeClientPosition(null);
+            setPendingNodeDelete(null);
+            setPendingConnection(null);
+            setPendingNodeEdit(null);
+            setPendingMemoEdit(null);
+            setPendingMemoClientPosition(null);
+            setSelectedEdgeControl(hitEdge.data?.controlType ?? DEFAULT_EDGE_CONTROL);
+            const conditionValue = hitEdge.data?.condition ?? '';
+            setEdgeForm({
+              condition: conditionValue,
+              note: hitEdge.data?.note ?? '',
+              validations: hitEdge.data?.validations?.map((rule) => ({ ...rule })) ?? [],
+            });
+            setPendingEdgeEdit({ id: hitEdge.id });
+            return;
+          }
+        }
+      }
       openNodeEditModal(node);
     },
-    [openNodeEditModal]
+    [
+      findEdgeNearPointInSection,
+      openMemoEditModal,
+      openNodeEditModal,
+      setEdgeForm,
+      setSelectedEdgeControl,
+    ]
   );
+
+  const openEdgeEditModal = useCallback((edge: Edge<LogicEdgeData>) => {
+    setPendingNodeClientPosition(null);
+    setPendingNodeDelete(null);
+    setPendingConnection(null);
+    setPendingNodeEdit(null);
+    setPendingMemoEdit(null);
+    setPendingMemoClientPosition(null);
+    setSelectedEdgeControl(edge.data?.controlType ?? DEFAULT_EDGE_CONTROL);
+    const conditionValue = edge.data?.condition ?? '';
+    setEdgeForm({
+      condition: conditionValue,
+      note: edge.data?.note ?? '',
+      validations: edge.data?.validations?.map((rule) => ({ ...rule })) ?? [],
+    });
+    setPendingEdgeEdit({ id: edge.id });
+  }, []);
 
   const onEdgeDoubleClick = useCallback(
     (event: ReactMouseEvent, edge: Edge<LogicEdgeData>) => {
       event.preventDefault();
       event.stopPropagation();
-      setPendingNodeClientPosition(null);
-      setPendingNodeDelete(null);
-      setPendingConnection(null);
-      setPendingNodeEdit(null);
-      setSelectedEdgeControl(edge.data?.controlType ?? DEFAULT_EDGE_CONTROL);
-      const conditionValue = edge.data?.condition ?? '';
-      setEdgeForm({
-        condition: conditionValue,
-        note: edge.data?.note ?? '',
-        validations: edge.data?.validations?.map((rule) => ({ ...rule })) ?? [],
-      });
-      setPendingEdgeEdit({ id: edge.id });
+      openEdgeEditModal(edge);
     },
-    []
+    [openEdgeEditModal]
+  );
+
+  const openEdgeEditModalById = useCallback(
+    (edgeId: string) => {
+      const edge = edges.find((item) => item.id === edgeId);
+      if (!edge) return;
+      openEdgeEditModal(edge);
+    },
+    [edges, openEdgeEditModal]
   );
 
   const deleteEdgeById = useCallback(
@@ -1606,7 +1889,7 @@ export default function FlowVisualization() {
 
   const onNodeDragStop = useCallback<NodeDragHandler>(
     (_event, draggedNode) => {
-      if (draggedNode.type === 'sectionNode') return;
+      if (draggedNode.type !== 'logicNode') return;
       const instance = reactFlowInstance.current;
       if (!instance) return;
       const sectionNodes = instance
@@ -1653,6 +1936,32 @@ export default function FlowVisualization() {
     },
     [setNodes]
   );
+
+  const applyMemoCreation = useCallback(() => {
+    if (!pendingMemoClientPosition) return;
+    const instance = reactFlowInstance.current;
+    if (!instance) return;
+    const flowPosition = instance.screenToFlowPosition(pendingMemoClientPosition);
+    const memoNode = createMemoNode({ text: memoText, position: flowPosition });
+    setNodes((currentNodes) => [...currentNodes, memoNode]);
+    setPendingMemoClientPosition(null);
+    setMemoText('');
+  }, [createMemoNode, memoText, pendingMemoClientPosition, setNodes]);
+
+  const applyMemoEdit = useCallback(() => {
+    if (!pendingMemoEdit) return;
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => {
+        if (node.id !== pendingMemoEdit.id || node.type !== 'memoNode') return node;
+        return {
+          ...node,
+          data: { ...(node.data as MemoNodeData), text: memoText },
+        };
+      })
+    );
+    setPendingMemoEdit(null);
+    setMemoText('');
+  }, [memoText, pendingMemoEdit, setNodes]);
 
   const edgeModalContent = useMemo(() => {
     const isEdit = Boolean(pendingEdgeEdit);
@@ -1889,6 +2198,95 @@ export default function FlowVisualization() {
     pendingEdgeEdit,
     selectedEdgeControl,
   ]);
+
+  const memoModalContent = useMemo(() => {
+    const isEdit = Boolean(pendingMemoEdit);
+    if (!pendingMemoClientPosition && !pendingMemoEdit) return null;
+    return (
+      <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+          <h3 className="text-lg font-semibold text-gray-900">
+            {isEdit ? 'メモを編集' : 'メモを追加'}
+          </h3>
+          <p className="mt-1 text-sm text-gray-600">
+            {isEdit ? 'メモ内容を変更できます。' : 'フロウ上に貼り付けるメモを入力してください。'}
+          </p>
+          <div className="mt-4">
+            <label className="text-xs font-semibold text-gray-700">本文</label>
+            <textarea
+              value={memoText}
+              className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+              rows={6}
+              onChange={(event) => setMemoText(event.target.value)}
+              placeholder="メモを入力"
+            />
+          </div>
+          <div className="mt-5 flex items-center justify-end gap-2">
+            {isEdit && pendingMemoEdit ? (
+              <button
+                type="button"
+                className="mr-auto rounded-md border border-rose-200 px-3 py-2 text-sm font-semibold text-rose-600 hover:bg-rose-50"
+                onClick={() => deleteNodeById(pendingMemoEdit.id)}
+              >
+                削除する
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              onClick={cancelMemoModal}
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              className="rounded-md bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+              onClick={isEdit ? applyMemoEdit : applyMemoCreation}
+            >
+              {isEdit ? '保存する' : '追加する'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }, [
+    applyMemoCreation,
+    applyMemoEdit,
+    cancelMemoModal,
+    deleteNodeById,
+    memoText,
+    pendingMemoClientPosition,
+    pendingMemoEdit,
+  ]);
+
+  const nodesForRender = useMemo(
+    () =>
+      nodes.map((node) => {
+        if (node.type === 'stampNode') {
+          return {
+            ...node,
+            data: {
+              ...(node.data as StampNodeData),
+              onDelete: deleteNodeById,
+            },
+          };
+        }
+        return node;
+      }),
+    [deleteNodeById, nodes]
+  );
+
+  const edgesForRender = useMemo(
+    () =>
+      edges.map((edge) => ({
+        ...edge,
+        data: {
+          ...ensureEdgeData(edge),
+          onEdit: openEdgeEditModalById,
+        },
+      })),
+    [edges, openEdgeEditModalById]
+  );
 
   const nodeModalContent = useMemo(() => {
     const isEdit = Boolean(pendingNodeEdit);
@@ -3305,19 +3703,47 @@ export default function FlowVisualization() {
       onDoubleClickCapture={onWrapperDoubleClickCapture}
       onClickCapture={onWrapperClickCapture}
     >
-      <button
-        type="button"
-        className="absolute right-3 top-3 z-30 rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-semibold text-gray-900 shadow-sm hover:bg-gray-50"
-        onClick={() => setPendingNodeClientPosition({ x: 300, y: 220 })}
-      >
-        Debug: Open Modal
-      </button>
-      <div className="absolute right-3 top-12 z-30 rounded-md border border-gray-300 bg-white px-3 py-2 text-xs text-gray-900 shadow-sm">
+      <div className="absolute right-3 top-3 z-30 flex flex-col items-end gap-2">
+        <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-white/90 px-3 py-2 text-xs font-semibold text-gray-900 shadow-sm">
+          <button
+            type="button"
+            className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+            onClick={openMemoCreateModal}
+          >
+            + メモ
+          </button>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">スタンプ</span>
+            <select
+              value={pendingStamp ?? ''}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900"
+              onChange={(event) =>
+                setPendingStamp(event.target.value ? (event.target.value as StampType) : null)
+              }
+            >
+              <option value="">選択</option>
+              {STAMP_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.emoji} {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+        {pendingStamp ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 shadow-sm">
+            クリックでスタンプを配置
+          </div>
+        ) : null}
+      </div>
+      <div className="absolute right-3 top-24 z-30 rounded-md border border-gray-300 bg-white px-3 py-2 text-xs text-gray-900 shadow-sm">
         <div className="font-semibold">Debug: Pane Event</div>
         {debugEvent ? (
           <>
             <div className="mt-1">type: {debugEvent.type}</div>
-            <div>pos: {debugEvent.x}, {debugEvent.y}</div>
+            <div>
+              pos: {debugEvent.x}, {debugEvent.y}
+            </div>
             <div>count: {debugEvent.count}</div>
           </>
         ) : (
@@ -3325,8 +3751,8 @@ export default function FlowVisualization() {
         )}
       </div>
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={nodesForRender}
+        edges={edgesForRender}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -3347,6 +3773,7 @@ export default function FlowVisualization() {
         <Background gap={12} size={1} />
       </ReactFlow>
       {edgeModalContent}
+      {memoModalContent}
       {nodeModalContent}
       {nodeDeleteContent}
     </div>
