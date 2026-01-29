@@ -29,6 +29,7 @@ import ReactFlow, {
   ConnectionMode,
   getBezierPath,
   type NodeDragHandler,
+  MarkerType,
 } from 'reactflow';
 import { NodeResizer } from '@reactflow/node-resizer';
 
@@ -36,7 +37,7 @@ import 'reactflow/dist/style.css';
 import '@reactflow/node-resizer/dist/style.css';
 
 type NodeKind = 'start' | 'end' | 'normal';
-type SectionType = 'function' | 'class';
+type SectionType = 'function' | 'class' | 'interface' | 'main';
 
 const EDGE_CONTROL_TYPES = [
   'flow',
@@ -47,16 +48,28 @@ const EDGE_CONTROL_TYPES = [
   'else',
   'break',
   'continue',
-  'try-except',
+  'try',
+  'catch',
   'function',
   'class',
 ] as const;
 
 type ControlType = (typeof EDGE_CONTROL_TYPES)[number];
 
+type TypedField = {
+  name: string;
+  type: string;
+};
+
+type ValidationRule = {
+  target: string;
+  rule: string;
+  message: string;
+};
+
 type ClassMethod = {
   name: string;
-  args: string;
+  args: TypedField[];
   returns: string;
   note: string;
 };
@@ -77,11 +90,14 @@ type SectionNodeData = {
   seq: number;
   controlType?: ControlType;
   note?: string;
-  functionArgs?: string;
-  functionReturns?: string;
-  classConstructor?: string;
-  classMembers?: string;
+  functionArgs?: TypedField[];
+  functionReturnType?: string;
+  classConstructorArgs?: TypedField[];
+  classMembers?: TypedField[];
   classMethods?: ClassMethod[];
+  interfaceMembers?: TypedField[];
+  interfaceMethods?: ClassMethod[];
+  validations?: ValidationRule[];
 };
 
 type FlowNodeData = LogicNodeData | SectionNodeData;
@@ -90,6 +106,7 @@ type LogicEdgeData = {
   controlType: ControlType;
   condition?: string;
   note?: string;
+  validations?: ValidationRule[];
 };
 
 type NodeRect = {
@@ -111,8 +128,10 @@ function toRgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+type StyleKey = ControlType | SectionType;
+
 const CONTROL_STYLE: Record<
-  ControlType,
+  StyleKey,
   { label: string; color: string; edgeDash?: string; nodeBg?: string; modalLabel?: string }
 > = {
   flow: { label: '', color: '#64748b', modalLabel: '通常（ラベルなし）' },
@@ -123,9 +142,12 @@ const CONTROL_STYLE: Record<
   else: { label: 'else', color: '#4f46e5' },
   break: { label: 'break', color: '#b91c1c', edgeDash: '4 4' },
   continue: { label: 'continue', color: '#c2410c', edgeDash: '2 4' },
-  'try-except': { label: 'try-except', color: '#15803d', edgeDash: '4 2' },
+  try: { label: 'try', color: '#15803d', edgeDash: '4 2' },
+  catch: { label: 'catch', color: '#dc2626', edgeDash: '4 2' },
   function: { label: 'function', color: '#0e7490', nodeBg: '#ecfeff' },
   class: { label: 'class', color: '#1d4ed8', nodeBg: '#eff6ff' },
+  interface: { label: 'interface', color: '#0ea5e9', nodeBg: '#e0f2fe' },
+  main: { label: 'main', color: '#f59e0b', nodeBg: '#fef3c7' },
 };
 
 const SECTION_MIN_WIDTH = 240;
@@ -141,11 +163,14 @@ type NodeFormState = {
   label: string;
   condition: string;
   note: string;
-  functionArgs: string;
-  functionReturns: string;
-  classConstructor: string;
-  classMembers: string;
+  functionArgs: TypedField[];
+  functionReturnType: string;
+  classConstructorArgs: TypedField[];
+  classMembers: TypedField[];
   classMethods: ClassMethod[];
+  interfaceMembers: TypedField[];
+  interfaceMethods: ClassMethod[];
+  validations: ValidationRule[];
 };
 
 type EdgeFormState = {
@@ -153,17 +178,21 @@ type EdgeFormState = {
   note: string;
   exceptionType: string;
   exceptionOther: string;
+  validations: ValidationRule[];
 };
 
 const EMPTY_NODE_FORM: NodeFormState = {
   label: '',
   condition: '',
   note: '',
-  functionArgs: '',
-  functionReturns: '',
-  classConstructor: '',
-  classMembers: '',
+  functionArgs: [],
+  functionReturnType: '',
+  classConstructorArgs: [],
+  classMembers: [],
   classMethods: [],
+  interfaceMembers: [],
+  interfaceMethods: [],
+  validations: [],
 };
 
 const EMPTY_EDGE_FORM: EdgeFormState = {
@@ -171,6 +200,7 @@ const EMPTY_EDGE_FORM: EdgeFormState = {
   note: '',
   exceptionType: '',
   exceptionOther: '',
+  validations: [],
 };
 
 type NodeOption = {
@@ -186,6 +216,8 @@ const NODE_OPTIONS: NodeOption[] = [
   { label: '通常', kind: 'normal', nodeLabel: '' },
   { label: CONTROL_STYLE.function.label, kind: 'section', sectionType: 'function' },
   { label: CONTROL_STYLE.class.label, kind: 'section', sectionType: 'class' },
+  { label: CONTROL_STYLE.interface.label, kind: 'section', sectionType: 'interface' },
+  { label: CONTROL_STYLE.main.label, kind: 'section', sectionType: 'main' },
 ];
 
 function getNodeRect(node: Node<FlowNodeData>): NodeRect | null {
@@ -273,7 +305,48 @@ function normalizeText(value: string) {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-const TRY_EXCEPT_OPTIONS = [
+function formatTypedFields(items?: TypedField[]) {
+  if (!items || !Array.isArray(items) || items.length === 0) return [];
+  return items
+    .map((item) => {
+      const name = item.name?.trim() ?? '';
+      const type = item.type?.trim() ?? '';
+      if (!name && !type) return null;
+      if (name && type) return `${name} : ${type}`;
+      return name || type;
+    })
+    .filter(Boolean) as string[];
+}
+
+function formatValidationRules(items?: ValidationRule[]) {
+  if (!items || !Array.isArray(items) || items.length === 0) return [];
+  return items
+    .map((rule) => {
+      const target = rule.target?.trim() ?? '';
+      const content = rule.rule?.trim() ?? '';
+      const message = rule.message?.trim() ?? '';
+      if (!target && !content && !message) return null;
+      const base = [target, content].filter((value) => value.length > 0).join(' ');
+      if (message.length > 0) {
+        return base.length > 0 ? `${base} (${message})` : message;
+      }
+      return base;
+    })
+    .filter(Boolean) as string[];
+}
+
+function formatValidationLabel(rule: ValidationRule) {
+  const target = rule.target?.trim() ?? '';
+  const content = rule.rule?.trim() ?? '';
+  const message = rule.message?.trim() ?? '';
+  const base = [target, content].filter((value) => value.length > 0).join(' ');
+  if (message.length > 0) {
+    return base.length > 0 ? `${base} (${message})` : message;
+  }
+  return base;
+}
+
+const CATCH_OPTIONS = [
   { value: 'ValueError', label: 'ValueError' },
   { value: 'TypeError', label: 'TypeError' },
   { value: 'KeyError', label: 'KeyError' },
@@ -282,12 +355,12 @@ const TRY_EXCEPT_OPTIONS = [
   { value: 'other', label: 'その他' },
 ] as const;
 
-function parseTryExceptCondition(condition: string) {
+function parseCatchCondition(condition: string) {
   const trimmed = condition.trim();
   if (trimmed.length === 0) {
     return { exceptionType: '', exceptionOther: '' };
   }
-  const matched = TRY_EXCEPT_OPTIONS.find(
+  const matched = CATCH_OPTIONS.find(
     (option) => option.value !== 'other' && option.value === trimmed
   );
   if (matched) {
@@ -298,17 +371,18 @@ function parseTryExceptCondition(condition: string) {
 
 function buildConditionForControl(controlType: ControlType, form: EdgeFormState) {
   if (controlType === 'flow') return undefined;
-  if (controlType === 'try-except') {
+  if (controlType === 'catch') {
     if (form.exceptionType === 'other') {
       return normalizeText(form.exceptionOther);
     }
     return normalizeText(form.exceptionType);
   }
+  if (controlType === 'try') return undefined;
   return normalizeText(form.condition);
 }
 
 function getConditionMeta(controlType: ControlType) {
-  if (controlType === 'flow' || controlType === 'try-except') return null;
+  if (controlType === 'flow' || controlType === 'try' || controlType === 'catch') return null;
   if (controlType === 'break') {
     return { label: '理由', placeholder: '例: 条件を満たしたため' };
   }
@@ -366,14 +440,24 @@ function getIfControlOptions(
   return options;
 }
 
-function buildEdgeLabel(controlType: ControlType, condition?: string, note?: string) {
+function buildEdgeLabel(
+  controlType: ControlType,
+  condition?: string,
+  note?: string,
+  validations?: ValidationRule[]
+) {
   const controlLabel = CONTROL_STYLE[controlType].label;
   const normalizedCondition = condition?.trim() ?? '';
   const normalizedNote = note?.trim() ?? '';
+  const validationItems = (validations ?? [])
+    .map((rule) => formatValidationLabel(rule))
+    .filter((value) => value.length > 0)
+    .map((value) => ({ text: `validation: ${value}`, color: '#0f172a' }));
   const items = [
     controlLabel.length > 0 ? { text: controlLabel, color: CONTROL_STYLE[controlType].color } : null,
     normalizedCondition.length > 0 ? { text: normalizedCondition, color: '#111827' } : null,
     normalizedNote.length > 0 ? { text: normalizedNote, color: '#6b7280' } : null,
+    ...validationItems,
   ].filter(Boolean) as { text: string; color: string }[];
 
   if (items.length === 0) return undefined;
@@ -403,6 +487,8 @@ function LogicEdge({
   targetPosition,
   style,
   data,
+  markerEnd,
+  markerStart,
 }: EdgeProps<LogicEdgeData>) {
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -412,11 +498,19 @@ function LogicEdge({
     sourcePosition,
     targetPosition,
   });
-  const label = data ? buildEdgeLabel(data.controlType, data.condition, data.note) : undefined;
+  const label = data
+    ? buildEdgeLabel(data.controlType, data.condition, data.note, data.validations)
+    : undefined;
 
   return (
     <>
-      <BaseEdge id={id} path={edgePath} style={style} />
+      <BaseEdge
+        id={id}
+        path={edgePath}
+        style={style}
+        markerEnd={markerEnd}
+        markerStart={markerStart}
+      />
       {label ? (
         <EdgeLabelRenderer>
           <div
@@ -442,11 +536,22 @@ function buildNodeFormFromNode(node: Node<FlowNodeData>): NodeFormState {
       ...base,
       label: data.label ?? '',
       note: data.note ?? '',
-      functionArgs: data.functionArgs ?? '',
-      functionReturns: data.functionReturns ?? '',
-      classConstructor: data.classConstructor ?? '',
-      classMembers: data.classMembers ?? '',
-      classMethods: data.classMethods?.map((method) => ({ ...method })) ?? [],
+      functionArgs: data.functionArgs?.map((arg) => ({ ...arg })) ?? [],
+      functionReturnType: data.functionReturnType ?? '',
+      classConstructorArgs: data.classConstructorArgs?.map((arg) => ({ ...arg })) ?? [],
+      classMembers: data.classMembers?.map((arg) => ({ ...arg })) ?? [],
+      classMethods:
+        data.classMethods?.map((method) => ({
+          ...method,
+          args: method.args?.map((arg) => ({ ...arg })) ?? [],
+        })) ?? [],
+      interfaceMembers: data.interfaceMembers?.map((arg) => ({ ...arg })) ?? [],
+      interfaceMethods:
+        data.interfaceMethods?.map((method) => ({
+          ...method,
+          args: method.args?.map((arg) => ({ ...arg })) ?? [],
+        })) ?? [],
+      validations: data.validations?.map((rule) => ({ ...rule })) ?? [],
     };
   }
   const data = node.data as LogicNodeData;
@@ -506,19 +611,23 @@ function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
   const sectionBg = toRgba(style.nodeBg ?? '#f8fafc', 0.45);
   const details: { label: string; value: string }[] = [];
   if (data.sectionType === 'function') {
-    if (data.functionArgs && data.functionArgs.trim().length > 0) {
-      details.push({ label: '引数', value: data.functionArgs });
+    const args = formatTypedFields(data.functionArgs);
+    if (args.length > 0) {
+      details.push({ label: '引数', value: args.join('\n') });
     }
-    if (data.functionReturns && data.functionReturns.trim().length > 0) {
-      details.push({ label: '返り値', value: data.functionReturns });
+    const returns = data.functionReturnType?.trim() ?? '';
+    if (returns.length > 0) {
+      details.push({ label: '返り値', value: returns });
     }
   }
   if (data.sectionType === 'class') {
-    if (data.classConstructor && data.classConstructor.trim().length > 0) {
-      details.push({ label: 'コンストラクタ', value: data.classConstructor });
+    const ctorArgs = formatTypedFields(data.classConstructorArgs);
+    if (ctorArgs.length > 0) {
+      details.push({ label: 'コンストラクタ引数', value: ctorArgs.join('\n') });
     }
-    if (data.classMembers && data.classMembers.trim().length > 0) {
-      details.push({ label: 'メンバ変数', value: data.classMembers });
+    const members = formatTypedFields(data.classMembers);
+    if (members.length > 0) {
+      details.push({ label: 'メンバ変数', value: members.join('\n') });
     }
     if (data.classMethods && data.classMethods.length > 0) {
       data.classMethods.forEach((method, index) => {
@@ -526,8 +635,9 @@ function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
         if (method.name && method.name.trim().length > 0) {
           lines.push(`名前: ${method.name}`);
         }
-        if (method.args && method.args.trim().length > 0) {
-          lines.push(`引数: ${method.args}`);
+        const methodArgs = formatTypedFields(method.args);
+        if (methodArgs.length > 0) {
+          lines.push(`引数:\n${methodArgs.join('\n')}`);
         }
         if (method.returns && method.returns.trim().length > 0) {
           lines.push(`返り値: ${method.returns}`);
@@ -540,6 +650,37 @@ function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
         }
       });
     }
+  }
+  if (data.sectionType === 'interface') {
+    const members = formatTypedFields(data.interfaceMembers);
+    if (members.length > 0) {
+      details.push({ label: 'プロパティ', value: members.join('\n') });
+    }
+    if (data.interfaceMethods && data.interfaceMethods.length > 0) {
+      data.interfaceMethods.forEach((method, index) => {
+        const lines: string[] = [];
+        if (method.name && method.name.trim().length > 0) {
+          lines.push(`名前: ${method.name}`);
+        }
+        const methodArgs = formatTypedFields(method.args);
+        if (methodArgs.length > 0) {
+          lines.push(`引数:\n${methodArgs.join('\n')}`);
+        }
+        if (method.returns && method.returns.trim().length > 0) {
+          lines.push(`返り値: ${method.returns}`);
+        }
+        if (method.note && method.note.trim().length > 0) {
+          lines.push(`補足: ${method.note}`);
+        }
+        if (lines.length > 0) {
+          details.push({ label: `メソッド${index + 1}`, value: lines.join('\n') });
+        }
+      });
+    }
+  }
+  const validationLines = formatValidationRules(data.validations);
+  if (validationLines.length > 0) {
+    details.push({ label: 'validation', value: validationLines.join('\n') });
   }
   if (data.note && data.note.trim().length > 0) {
     details.push({ label: '補足', value: data.note });
@@ -653,11 +794,14 @@ export default function FlowVisualization() {
       label: string;
       position: XYPosition;
       note?: string;
-      functionArgs?: string;
-      functionReturns?: string;
-      classConstructor?: string;
-      classMembers?: string;
+      functionArgs?: TypedField[];
+      functionReturnType?: string;
+      classConstructorArgs?: TypedField[];
+      classMembers?: TypedField[];
       classMethods?: ClassMethod[];
+      interfaceMembers?: TypedField[];
+      interfaceMethods?: ClassMethod[];
+      validations?: ValidationRule[];
     }): Node<SectionNodeData> => {
       const seq = nextNodeSeq.current++;
       return {
@@ -671,10 +815,13 @@ export default function FlowVisualization() {
           seq,
           note: params.note,
           functionArgs: params.functionArgs,
-          functionReturns: params.functionReturns,
-          classConstructor: params.classConstructor,
+          functionReturnType: params.functionReturnType,
+          classConstructorArgs: params.classConstructorArgs,
           classMembers: params.classMembers,
           classMethods: params.classMethods,
+          interfaceMembers: params.interfaceMembers,
+          interfaceMethods: params.interfaceMethods,
+          validations: params.validations,
         },
       };
     },
@@ -784,6 +931,7 @@ export default function FlowVisualization() {
       const style = CONTROL_STYLE[controlType];
       const condition = buildConditionForControl(controlType, edgeForm);
       const note = normalizeText(edgeForm.note);
+      const validations = edgeForm.validations.map((rule) => ({ ...rule }));
       const edgeId = `edge-${nextEdgeSeq.current++}`;
       const edge: Edge<LogicEdgeData> = {
         id: edgeId,
@@ -792,13 +940,14 @@ export default function FlowVisualization() {
         target: pendingConnection.target,
         sourceHandle: pendingConnection.sourceHandle ?? undefined,
         targetHandle: pendingConnection.targetHandle ?? undefined,
-        label: buildEdgeLabel(controlType, condition, note),
+        label: buildEdgeLabel(controlType, condition, note, validations),
         style: {
           stroke: style.color,
           strokeWidth: EDGE_STROKE_WIDTH,
           strokeDasharray: style.edgeDash,
         },
-        data: { controlType, condition, note },
+        markerEnd: { type: MarkerType.ArrowClosed, color: style.color },
+        data: { controlType, condition, note, validations },
       };
 
       setEdges((eds) => addEdge(edge, eds));
@@ -822,6 +971,7 @@ export default function FlowVisualization() {
       edgeForm.exceptionOther,
       edgeForm.exceptionType,
       edgeForm.note,
+      edgeForm.validations,
       pendingConnection,
       setEdges,
       setNodes,
@@ -843,16 +993,35 @@ export default function FlowVisualization() {
         return;
       }
       const isFunction = nodeModalOption.sectionType === 'function';
+      const isClass = nodeModalOption.sectionType === 'class';
+      const isInterface = nodeModalOption.sectionType === 'interface';
       const newSection = createSectionNode({
         sectionType: nodeModalOption.sectionType,
         label: normalizeText(nodeForm.label) ?? '',
         position: flowPosition,
         note: normalizeText(nodeForm.note),
-        functionArgs: isFunction ? normalizeText(nodeForm.functionArgs) : undefined,
-        functionReturns: isFunction ? normalizeText(nodeForm.functionReturns) : undefined,
-        classConstructor: !isFunction ? normalizeText(nodeForm.classConstructor) : undefined,
-        classMembers: !isFunction ? normalizeText(nodeForm.classMembers) : undefined,
-        classMethods: !isFunction ? nodeForm.classMethods.map((method) => ({ ...method })) : undefined,
+        functionArgs: isFunction ? nodeForm.functionArgs.map((arg) => ({ ...arg })) : undefined,
+        functionReturnType: isFunction ? normalizeText(nodeForm.functionReturnType) : undefined,
+        classConstructorArgs: isClass
+          ? nodeForm.classConstructorArgs.map((arg) => ({ ...arg }))
+          : undefined,
+        classMembers: isClass ? nodeForm.classMembers.map((arg) => ({ ...arg })) : undefined,
+        classMethods: isClass
+          ? nodeForm.classMethods.map((method) => ({
+              ...method,
+              args: method.args.map((arg) => ({ ...arg })),
+            }))
+          : undefined,
+        interfaceMembers: isInterface
+          ? nodeForm.interfaceMembers.map((arg) => ({ ...arg }))
+          : undefined,
+        interfaceMethods: isInterface
+          ? nodeForm.interfaceMethods.map((method) => ({
+              ...method,
+              args: method.args.map((arg) => ({ ...arg })),
+            }))
+          : undefined,
+        validations: nodeForm.validations.map((rule) => ({ ...rule })),
       });
       setNodes((currentNodes) => [newSection, ...currentNodes]);
       setPendingNodeClientPosition(null);
@@ -949,6 +1118,8 @@ export default function FlowVisualization() {
             const height =
               typeof node.style?.height === 'number' ? node.style.height : SECTION_DEFAULT_HEIGHT;
             const isFunction = sectionType === 'function';
+            const isClass = sectionType === 'class';
+            const isInterface = sectionType === 'interface';
             return {
               ...node,
               type: 'sectionNode',
@@ -961,13 +1132,32 @@ export default function FlowVisualization() {
                 sectionType,
                 seq: targetSeq,
                 note: normalizeText(nodeForm.note),
-                functionArgs: isFunction ? normalizeText(nodeForm.functionArgs) : undefined,
-                functionReturns: isFunction ? normalizeText(nodeForm.functionReturns) : undefined,
-                classConstructor: !isFunction ? normalizeText(nodeForm.classConstructor) : undefined,
-                classMembers: !isFunction ? normalizeText(nodeForm.classMembers) : undefined,
-                classMethods: !isFunction
-                  ? nodeForm.classMethods.map((method) => ({ ...method }))
+                functionArgs: isFunction
+                  ? nodeForm.functionArgs.map((arg) => ({ ...arg }))
                   : undefined,
+                functionReturnType: isFunction
+                  ? normalizeText(nodeForm.functionReturnType)
+                  : undefined,
+                classConstructorArgs: isClass
+                  ? nodeForm.classConstructorArgs.map((arg) => ({ ...arg }))
+                  : undefined,
+                classMembers: isClass ? nodeForm.classMembers.map((arg) => ({ ...arg })) : undefined,
+                classMethods: isClass
+                  ? nodeForm.classMethods.map((method) => ({
+                      ...method,
+                      args: method.args.map((arg) => ({ ...arg })),
+                    }))
+                  : undefined,
+                interfaceMembers: isInterface
+                  ? nodeForm.interfaceMembers.map((arg) => ({ ...arg }))
+                  : undefined,
+                interfaceMethods: isInterface
+                  ? nodeForm.interfaceMethods.map((method) => ({
+                      ...method,
+                      args: method.args.map((arg) => ({ ...arg })),
+                    }))
+                  : undefined,
+                validations: nodeForm.validations.map((rule) => ({ ...rule })),
               },
             };
           }
@@ -1138,13 +1328,14 @@ export default function FlowVisualization() {
         type: 'logicEdge',
         source: instanceNode.id,
         target: classNode.id,
-        label: buildEdgeLabel('class', undefined, undefined),
+        label: buildEdgeLabel('class', undefined, undefined, []),
         style: {
           stroke: style.color,
           strokeWidth: EDGE_STROKE_WIDTH,
           strokeDasharray: style.edgeDash,
         },
-        data: { controlType: 'class' },
+        markerEnd: { type: MarkerType.ArrowClosed, color: style.color },
+        data: { controlType: 'class', validations: [] },
       };
       setEdges((currentEdges) => addEdge(edge, currentEdges));
     },
@@ -1170,15 +1361,16 @@ export default function FlowVisualization() {
       setPendingNodeEdit(null);
       setSelectedEdgeControl(edge.data?.controlType ?? DEFAULT_EDGE_CONTROL);
       const conditionValue = edge.data?.condition ?? '';
-      const tryExceptForm =
-        edge.data?.controlType === 'try-except'
-          ? parseTryExceptCondition(conditionValue)
+      const catchForm =
+        edge.data?.controlType === 'catch'
+          ? parseCatchCondition(conditionValue)
           : { exceptionType: '', exceptionOther: '' };
       setEdgeForm({
         condition: conditionValue,
         note: edge.data?.note ?? '',
-        exceptionType: tryExceptForm.exceptionType,
-        exceptionOther: tryExceptForm.exceptionOther,
+        exceptionType: catchForm.exceptionType,
+        exceptionOther: catchForm.exceptionOther,
+        validations: edge.data?.validations?.map((rule) => ({ ...rule })) ?? [],
       });
       setPendingEdgeEdit({ id: edge.id });
     },
@@ -1198,25 +1390,34 @@ export default function FlowVisualization() {
       const style = CONTROL_STYLE[controlType];
       const condition = buildConditionForControl(controlType, edgeForm);
       const note = normalizeText(edgeForm.note);
+      const validations = edgeForm.validations.map((rule) => ({ ...rule }));
       setEdges((currentEdges) =>
         currentEdges.map((edge) => {
           if (edge.id !== edgeId) return edge;
           return {
             ...edge,
             type: 'logicEdge',
-            label: buildEdgeLabel(controlType, condition, note),
+            label: buildEdgeLabel(controlType, condition, note, validations),
             style: {
               ...edge.style,
               stroke: style.color,
               strokeWidth: EDGE_STROKE_WIDTH,
               strokeDasharray: style.edgeDash,
             },
-            data: { ...edge.data, controlType, condition, note },
+            markerEnd: { type: MarkerType.ArrowClosed, color: style.color },
+            data: { ...edge.data, controlType, condition, note, validations },
           };
         })
       );
     },
-    [edgeForm.condition, edgeForm.exceptionOther, edgeForm.exceptionType, edgeForm.note, setEdges]
+    [
+      edgeForm.condition,
+      edgeForm.exceptionOther,
+      edgeForm.exceptionType,
+      edgeForm.note,
+      edgeForm.validations,
+      setEdges,
+    ]
   );
 
   const onEdgeControlChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
@@ -1296,24 +1497,35 @@ export default function FlowVisualization() {
       ? edges.find((edge) => edge.id === pendingEdgeEdit.id) ?? null
       : null;
     const sourceId = pendingConnection?.source ?? editingEdge?.source ?? null;
+    const targetId = pendingConnection?.target ?? editingEdge?.target ?? null;
     const ifOptions = getIfControlOptions(
       sourceId,
       edges,
       editingEdge?.id ?? null,
       editingEdge?.data?.controlType ?? null
     );
+    const isNewConnection = Boolean(pendingConnection);
+    const sourceNode = isNewConnection ? nodes.find((node) => node.id === sourceId) : null;
+    const targetNode = isNewConnection ? nodes.find((node) => node.id === targetId) : null;
+    const hideFunctionClass =
+      isNewConnection &&
+      sourceNode?.type === 'logicNode' &&
+      targetNode?.type === 'logicNode';
     const availableEdgeControls = EDGE_CONTROL_TYPES.filter((type) => {
       if (type === 'if' || type === 'elif' || type === 'else') {
         return ifOptions.includes(type);
       }
+      if (hideFunctionClass && (type === 'function' || type === 'class')) {
+        return false;
+      }
       return true;
     });
     const conditionMeta = getConditionMeta(selectedEdgeControl);
-    const isTryExcept = selectedEdgeControl === 'try-except';
+    const isCatch = selectedEdgeControl === 'catch';
 
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+        <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
           <h3 className="text-lg font-semibold text-gray-900">
             {isEdit ? 'エッジを編集' : '制御構文を選択'}
           </h3>
@@ -1337,7 +1549,7 @@ export default function FlowVisualization() {
             </select>
           </div>
           <div className="mt-4 grid gap-3">
-            {isTryExcept ? (
+            {isCatch ? (
               <>
                 <div>
                   <label className="text-xs font-semibold text-gray-700">例外種別</label>
@@ -1352,7 +1564,7 @@ export default function FlowVisualization() {
                     }
                   >
                     <option value="">選択してください</option>
-                    {TRY_EXCEPT_OPTIONS.map((option) => (
+                    {CATCH_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
@@ -1406,6 +1618,119 @@ export default function FlowVisualization() {
                 placeholder="補足コメントを入力"
               />
             </div>
+            <div>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-gray-700">validation</label>
+                <button
+                  type="button"
+                  className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                  onClick={() =>
+                    setEdgeForm((current) => ({
+                      ...current,
+                      validations: [
+                        ...current.validations,
+                        { target: '', rule: '', message: '' },
+                      ],
+                    }))
+                  }
+                >
+                  + 追加
+                </button>
+              </div>
+              {edgeForm.validations.length === 0 ? (
+                <div className="mt-2 text-xs text-gray-500">validationを追加してください。</div>
+              ) : (
+                <div className="mt-3 grid gap-3">
+                  {edgeForm.validations.map((rule, index) => (
+                    <div
+                      key={`edge-validation-${index}`}
+                      className="rounded-md border border-gray-200 p-3"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-semibold text-gray-700">
+                          validation {index + 1}
+                        </div>
+                        <button
+                          type="button"
+                          className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                          onClick={() =>
+                            setEdgeForm((current) => ({
+                              ...current,
+                              validations: current.validations.filter(
+                                (_item, ruleIndex) => ruleIndex !== index
+                              ),
+                            }))
+                          }
+                        >
+                          削除
+                        </button>
+                      </div>
+                      <div className="mt-2 grid gap-2">
+                        <div>
+                          <label className="text-xs font-semibold text-gray-700">対象</label>
+                          <input
+                            type="text"
+                            value={rule.target}
+                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                            onChange={(event) =>
+                              setEdgeForm((current) => ({
+                                ...current,
+                                validations: current.validations.map((item, ruleIndex) =>
+                                  ruleIndex === index
+                                    ? { ...item, target: event.target.value }
+                                    : item
+                                ),
+                              }))
+                            }
+                            placeholder="例: input.age"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-gray-700">ルール</label>
+                          <input
+                            type="text"
+                            value={rule.rule}
+                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                            onChange={(event) =>
+                              setEdgeForm((current) => ({
+                                ...current,
+                                validations: current.validations.map((item, ruleIndex) =>
+                                  ruleIndex === index
+                                    ? { ...item, rule: event.target.value }
+                                    : item
+                                ),
+                              }))
+                            }
+                            placeholder="例: > 0"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-gray-700">
+                            メッセージ/補足
+                          </label>
+                          <input
+                            type="text"
+                            value={rule.message}
+                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                            onChange={(event) =>
+                              setEdgeForm((current) => ({
+                                ...current,
+                                validations: current.validations.map((item, ruleIndex) =>
+                                  ruleIndex === index
+                                    ? { ...item, message: event.target.value }
+                                    : item
+                                ),
+                              }))
+                            }
+                            placeholder="例: 必須入力"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <div className="mt-5 flex items-center justify-end gap-2">
             {isEdit ? (
@@ -1447,7 +1772,9 @@ export default function FlowVisualization() {
     edgeForm.exceptionOther,
     edgeForm.exceptionType,
     edgeForm.note,
+    edgeForm.validations,
     edges,
+    nodes,
     onEdgeControlChange,
     pendingConnection,
     pendingEdgeEdit,
@@ -1468,10 +1795,11 @@ export default function FlowVisualization() {
       selectedOption?.kind === 'start' || selectedOption?.kind === 'end';
     const isFunctionSection = isSection && selectedOption?.sectionType === 'function';
     const isClassSection = isSection && selectedOption?.sectionType === 'class';
+    const isInterfaceSection = isSection && selectedOption?.sectionType === 'interface';
 
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-        <div className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl">
+        <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
           <h3 className="text-lg font-semibold text-gray-900">
             {isEdit ? 'ノード種別を変更' : 'ノード種別を選択'}
           </h3>
@@ -1526,30 +1854,112 @@ export default function FlowVisualization() {
                     {isFunctionSection ? (
                       <>
                         <div>
-                          <label className="text-xs font-semibold text-gray-700">引数</label>
-                          <textarea
-                            value={nodeForm.functionArgs}
-                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
-                            rows={2}
-                            onChange={(event) =>
-                              setNodeForm((current) => ({
-                                ...current,
-                                functionArgs: event.target.value,
-                              }))
-                            }
-                            placeholder="例: userId, includePosts"
-                          />
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-gray-700">引数</label>
+                            <button
+                              type="button"
+                              className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              onClick={() =>
+                                setNodeForm((current) => ({
+                                  ...current,
+                                  functionArgs: [...current.functionArgs, { name: '', type: '' }],
+                                }))
+                              }
+                            >
+                              + 追加
+                            </button>
+                          </div>
+                          {nodeForm.functionArgs.length === 0 ? (
+                            <div className="mt-2 text-xs text-gray-500">
+                              引数を追加してください。
+                            </div>
+                          ) : (
+                            <div className="mt-3 grid gap-2">
+                              {nodeForm.functionArgs.map((arg, index) => (
+                                <div
+                                  key={`function-arg-${index}`}
+                                  className="rounded-md border border-gray-200 p-3"
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="text-xs font-semibold text-gray-700">
+                                      引数 {index + 1}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                                      onClick={() =>
+                                        setNodeForm((current) => ({
+                                          ...current,
+                                          functionArgs: current.functionArgs.filter(
+                                            (_item, argIndex) => argIndex !== index
+                                          ),
+                                        }))
+                                      }
+                                    >
+                                      削除
+                                    </button>
+                                  </div>
+                                  <div className="mt-2 grid gap-2">
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        引数名
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={arg.name}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            functionArgs: current.functionArgs.map(
+                                              (item, argIndex) =>
+                                                argIndex === index
+                                                  ? { ...item, name: event.target.value }
+                                                  : item
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="例: userId"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        型
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={arg.type}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            functionArgs: current.functionArgs.map(
+                                              (item, argIndex) =>
+                                                argIndex === index
+                                                  ? { ...item, type: event.target.value }
+                                                  : item
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="例: string"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         <div>
-                          <label className="text-xs font-semibold text-gray-700">返り値</label>
-                          <textarea
-                            value={nodeForm.functionReturns}
+                          <label className="text-xs font-semibold text-gray-700">返り値の型</label>
+                          <input
+                            type="text"
+                            value={nodeForm.functionReturnType}
                             className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
-                            rows={2}
                             onChange={(event) =>
                               setNodeForm((current) => ({
                                 ...current,
-                                functionReturns: event.target.value,
+                                functionReturnType: event.target.value,
                               }))
                             }
                             placeholder="例: UserResponse"
@@ -1560,36 +1970,208 @@ export default function FlowVisualization() {
                     {isClassSection ? (
                       <>
                         <div>
-                          <label className="text-xs font-semibold text-gray-700">
-                            コンストラクタ条件
-                          </label>
-                          <textarea
-                            value={nodeForm.classConstructor}
-                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
-                            rows={2}
-                            onChange={(event) =>
-                              setNodeForm((current) => ({
-                                ...current,
-                                classConstructor: event.target.value,
-                              }))
-                            }
-                            placeholder="例: __init__(userId: string)"
-                          />
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-gray-700">
+                              コンストラクタ引数
+                            </label>
+                            <button
+                              type="button"
+                              className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              onClick={() =>
+                                setNodeForm((current) => ({
+                                  ...current,
+                                  classConstructorArgs: [
+                                    ...current.classConstructorArgs,
+                                    { name: '', type: '' },
+                                  ],
+                                }))
+                              }
+                            >
+                              + 追加
+                            </button>
+                          </div>
+                          {nodeForm.classConstructorArgs.length === 0 ? (
+                            <div className="mt-2 text-xs text-gray-500">
+                              コンストラクタ引数を追加してください。
+                            </div>
+                          ) : (
+                            <div className="mt-3 grid gap-2">
+                              {nodeForm.classConstructorArgs.map((arg, index) => (
+                                <div
+                                  key={`class-ctor-${index}`}
+                                  className="rounded-md border border-gray-200 p-3"
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="text-xs font-semibold text-gray-700">
+                                      引数 {index + 1}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                                      onClick={() =>
+                                        setNodeForm((current) => ({
+                                          ...current,
+                                          classConstructorArgs:
+                                            current.classConstructorArgs.filter(
+                                              (_item, argIndex) => argIndex !== index
+                                            ),
+                                        }))
+                                      }
+                                    >
+                                      削除
+                                    </button>
+                                  </div>
+                                  <div className="mt-2 grid gap-2">
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        引数名
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={arg.name}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            classConstructorArgs:
+                                              current.classConstructorArgs.map(
+                                                (item, argIndex) =>
+                                                  argIndex === index
+                                                    ? { ...item, name: event.target.value }
+                                                    : item
+                                              ),
+                                          }))
+                                        }
+                                        placeholder="例: userId"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        型
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={arg.type}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            classConstructorArgs:
+                                              current.classConstructorArgs.map(
+                                                (item, argIndex) =>
+                                                  argIndex === index
+                                                    ? { ...item, type: event.target.value }
+                                                    : item
+                                              ),
+                                          }))
+                                        }
+                                        placeholder="例: string"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         <div>
-                          <label className="text-xs font-semibold text-gray-700">メンバ変数</label>
-                          <textarea
-                            value={nodeForm.classMembers}
-                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
-                            rows={2}
-                            onChange={(event) =>
-                              setNodeForm((current) => ({
-                                ...current,
-                                classMembers: event.target.value,
-                              }))
-                            }
-                            placeholder="例: id, name, email"
-                          />
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-gray-700">
+                              メンバ変数
+                            </label>
+                            <button
+                              type="button"
+                              className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              onClick={() =>
+                                setNodeForm((current) => ({
+                                  ...current,
+                                  classMembers: [...current.classMembers, { name: '', type: '' }],
+                                }))
+                              }
+                            >
+                              + 追加
+                            </button>
+                          </div>
+                          {nodeForm.classMembers.length === 0 ? (
+                            <div className="mt-2 text-xs text-gray-500">
+                              メンバ変数を追加してください。
+                            </div>
+                          ) : (
+                            <div className="mt-3 grid gap-2">
+                              {nodeForm.classMembers.map((member, index) => (
+                                <div
+                                  key={`class-member-${index}`}
+                                  className="rounded-md border border-gray-200 p-3"
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="text-xs font-semibold text-gray-700">
+                                      メンバ {index + 1}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                                      onClick={() =>
+                                        setNodeForm((current) => ({
+                                          ...current,
+                                          classMembers: current.classMembers.filter(
+                                            (_item, memberIndex) => memberIndex !== index
+                                          ),
+                                        }))
+                                      }
+                                    >
+                                      削除
+                                    </button>
+                                  </div>
+                                  <div className="mt-2 grid gap-2">
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        変数名
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={member.name}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            classMembers: current.classMembers.map(
+                                              (item, memberIndex) =>
+                                                memberIndex === index
+                                                  ? { ...item, name: event.target.value }
+                                                  : item
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="例: id"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        型
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={member.type}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            classMembers: current.classMembers.map(
+                                              (item, memberIndex) =>
+                                                memberIndex === index
+                                                  ? { ...item, type: event.target.value }
+                                                  : item
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="例: string"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         {isEdit && editingNode ? (
                           <div>
@@ -1615,7 +2197,7 @@ export default function FlowVisualization() {
                                   ...current,
                                   classMethods: [
                                     ...current.classMethods,
-                                    { name: '', args: '', returns: '', note: '' },
+                                    { name: '', args: [], returns: '', note: '' },
                                   ],
                                 }))
                               }
@@ -1656,12 +2238,12 @@ export default function FlowVisualization() {
                                   <div className="mt-2 grid gap-2">
                                     <div>
                                       <label className="text-xs font-semibold text-gray-700">
-                                        メソッド名
-                                      </label>
-                                      <input
-                                        type="text"
-                                        value={method.name}
-                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                      メソッド名
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={method.name}
+                                      className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
                                         onChange={(event) =>
                                           setNodeForm((current) => ({
                                             ...current,
@@ -1677,26 +2259,145 @@ export default function FlowVisualization() {
                                       />
                                     </div>
                                     <div>
-                                      <label className="text-xs font-semibold text-gray-700">
-                                        メソッド引数
-                                      </label>
-                                      <input
-                                        type="text"
-                                        value={method.args}
-                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
-                                        onChange={(event) =>
-                                          setNodeForm((current) => ({
-                                            ...current,
-                                            classMethods: current.classMethods.map(
-                                              (item, methodIndex) =>
-                                                methodIndex === index
-                                                  ? { ...item, args: event.target.value }
-                                                  : item
-                                            ),
-                                          }))
-                                        }
-                                        placeholder="例: id: string"
-                                      />
+                                      <div className="flex items-center justify-between">
+                                        <label className="text-xs font-semibold text-gray-700">
+                                          メソッド引数
+                                        </label>
+                                        <button
+                                          type="button"
+                                          className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                          onClick={() =>
+                                            setNodeForm((current) => ({
+                                              ...current,
+                                              classMethods: current.classMethods.map(
+                                                (item, methodIndex) =>
+                                                  methodIndex === index
+                                                    ? {
+                                                        ...item,
+                                                        args: [
+                                                          ...item.args,
+                                                          { name: '', type: '' },
+                                                        ],
+                                                      }
+                                                    : item
+                                              ),
+                                            }))
+                                          }
+                                        >
+                                          + 追加
+                                        </button>
+                                      </div>
+                                      {method.args.length === 0 ? (
+                                        <div className="mt-2 text-xs text-gray-500">
+                                          引数を追加してください。
+                                        </div>
+                                      ) : (
+                                        <div className="mt-3 grid gap-2">
+                                          {method.args.map((arg, argIndex) => (
+                                            <div
+                                              key={`class-method-${index}-arg-${argIndex}`}
+                                              className="rounded-md border border-gray-200 p-3"
+                                            >
+                                              <div className="flex items-center justify-between">
+                                                <div className="text-xs font-semibold text-gray-700">
+                                                  引数 {argIndex + 1}
+                                                </div>
+                                                <button
+                                                  type="button"
+                                                  className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                                                  onClick={() =>
+                                                    setNodeForm((current) => ({
+                                                      ...current,
+                                                      classMethods: current.classMethods.map(
+                                                        (item, methodIndex) =>
+                                                          methodIndex === index
+                                                            ? {
+                                                                ...item,
+                                                                args: item.args.filter(
+                                                                  (_arg, removeIndex) =>
+                                                                    removeIndex !== argIndex
+                                                                ),
+                                                              }
+                                                            : item
+                                                      ),
+                                                    }))
+                                                  }
+                                                >
+                                                  削除
+                                                </button>
+                                              </div>
+                                              <div className="mt-2 grid gap-2">
+                                                <div>
+                                                  <label className="text-xs font-semibold text-gray-700">
+                                                    引数名
+                                                  </label>
+                                                  <input
+                                                    type="text"
+                                                    value={arg.name}
+                                                    className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                                    onChange={(event) =>
+                                                      setNodeForm((current) => ({
+                                                        ...current,
+                                                        classMethods: current.classMethods.map(
+                                                          (item, methodIndex) =>
+                                                            methodIndex === index
+                                                              ? {
+                                                                  ...item,
+                                                                  args: item.args.map(
+                                                                    (argItem, itemIndex) =>
+                                                                      itemIndex === argIndex
+                                                                        ? {
+                                                                            ...argItem,
+                                                                            name: event.target.value,
+                                                                          }
+                                                                        : argItem
+                                                                  ),
+                                                                }
+                                                              : item
+                                                        ),
+                                                      }))
+                                                    }
+                                                    placeholder="例: id"
+                                                  />
+                                                </div>
+                                                <div>
+                                                  <label className="text-xs font-semibold text-gray-700">
+                                                    型
+                                                  </label>
+                                                  <input
+                                                    type="text"
+                                                    value={arg.type}
+                                                    className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                                    onChange={(event) =>
+                                                      setNodeForm((current) => ({
+                                                        ...current,
+                                                        classMethods: current.classMethods.map(
+                                                          (item, methodIndex) =>
+                                                            methodIndex === index
+                                                              ? {
+                                                                  ...item,
+                                                                  args: item.args.map(
+                                                                    (argItem, itemIndex) =>
+                                                                      itemIndex === argIndex
+                                                                        ? {
+                                                                            ...argItem,
+                                                                            type: event.target.value,
+                                                                          }
+                                                                        : argItem
+                                                                  ),
+                                                                }
+                                                              : item
+                                                        ),
+                                                      }))
+                                                    }
+                                                    placeholder="例: string"
+                                                  />
+                                                </div>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
                                     </div>
                                     <div>
                                       <label className="text-xs font-semibold text-gray-700">
@@ -1749,6 +2450,496 @@ export default function FlowVisualization() {
                           )}
                         </div>
                       </>
+                    ) : null}
+                    {isInterfaceSection ? (
+                      <>
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-gray-700">プロパティ</label>
+                            <button
+                              type="button"
+                              className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              onClick={() =>
+                                setNodeForm((current) => ({
+                                  ...current,
+                                  interfaceMembers: [
+                                    ...current.interfaceMembers,
+                                    { name: '', type: '' },
+                                  ],
+                                }))
+                              }
+                            >
+                              + 追加
+                            </button>
+                          </div>
+                          {nodeForm.interfaceMembers.length === 0 ? (
+                            <div className="mt-2 text-xs text-gray-500">
+                              プロパティを追加してください。
+                            </div>
+                          ) : (
+                            <div className="mt-3 grid gap-2">
+                              {nodeForm.interfaceMembers.map((member, index) => (
+                                <div
+                                  key={`interface-member-${index}`}
+                                  className="rounded-md border border-gray-200 p-3"
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="text-xs font-semibold text-gray-700">
+                                      プロパティ {index + 1}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                                      onClick={() =>
+                                        setNodeForm((current) => ({
+                                          ...current,
+                                          interfaceMembers: current.interfaceMembers.filter(
+                                            (_item, memberIndex) => memberIndex !== index
+                                          ),
+                                        }))
+                                      }
+                                    >
+                                      削除
+                                    </button>
+                                  </div>
+                                  <div className="mt-2 grid gap-2">
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        名前
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={member.name}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            interfaceMembers: current.interfaceMembers.map(
+                                              (item, memberIndex) =>
+                                                memberIndex === index
+                                                  ? { ...item, name: event.target.value }
+                                                  : item
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="例: id"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        型
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={member.type}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            interfaceMembers: current.interfaceMembers.map(
+                                              (item, memberIndex) =>
+                                                memberIndex === index
+                                                  ? { ...item, type: event.target.value }
+                                                  : item
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="例: string"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div>
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-gray-700">
+                              メソッド一覧
+                            </label>
+                            <button
+                              type="button"
+                              className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              onClick={() =>
+                                setNodeForm((current) => ({
+                                  ...current,
+                                  interfaceMethods: [
+                                    ...current.interfaceMethods,
+                                    { name: '', args: [], returns: '', note: '' },
+                                  ],
+                                }))
+                              }
+                            >
+                              + メソッドを追加
+                            </button>
+                          </div>
+                          {nodeForm.interfaceMethods.length === 0 ? (
+                            <div className="mt-2 text-xs text-gray-500">
+                              メソッドを追加してください。
+                            </div>
+                          ) : (
+                            <div className="mt-3 grid gap-3">
+                              {nodeForm.interfaceMethods.map((method, index) => (
+                                <div
+                                  key={`interface-method-${index}`}
+                                  className="rounded-md border border-gray-200 p-3"
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="text-xs font-semibold text-gray-700">
+                                      メソッド {index + 1}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                                      onClick={() =>
+                                        setNodeForm((current) => ({
+                                          ...current,
+                                          interfaceMethods: current.interfaceMethods.filter(
+                                            (_item, methodIndex) => methodIndex !== index
+                                          ),
+                                        }))
+                                      }
+                                    >
+                                      削除
+                                    </button>
+                                  </div>
+                                  <div className="mt-2 grid gap-2">
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        メソッド名
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={method.name}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            interfaceMethods: current.interfaceMethods.map(
+                                              (item, methodIndex) =>
+                                                methodIndex === index
+                                                  ? { ...item, name: event.target.value }
+                                                  : item
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="例: fetchUser"
+                                      />
+                                    </div>
+                                    <div>
+                                      <div className="flex items-center justify-between">
+                                        <label className="text-xs font-semibold text-gray-700">
+                                          メソッド引数
+                                        </label>
+                                        <button
+                                          type="button"
+                                          className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                          onClick={() =>
+                                            setNodeForm((current) => ({
+                                              ...current,
+                                              interfaceMethods: current.interfaceMethods.map(
+                                                (item, methodIndex) =>
+                                                  methodIndex === index
+                                                    ? {
+                                                        ...item,
+                                                        args: [
+                                                          ...item.args,
+                                                          { name: '', type: '' },
+                                                        ],
+                                                      }
+                                                    : item
+                                              ),
+                                            }))
+                                          }
+                                        >
+                                          + 追加
+                                        </button>
+                                      </div>
+                                      {method.args.length === 0 ? (
+                                        <div className="mt-2 text-xs text-gray-500">
+                                          引数を追加してください。
+                                        </div>
+                                      ) : (
+                                        <div className="mt-3 grid gap-2">
+                                          {method.args.map((arg, argIndex) => (
+                                            <div
+                                              key={`interface-method-${index}-arg-${argIndex}`}
+                                              className="rounded-md border border-gray-200 p-3"
+                                            >
+                                              <div className="flex items-center justify-between">
+                                                <div className="text-xs font-semibold text-gray-700">
+                                                  引数 {argIndex + 1}
+                                                </div>
+                                                <button
+                                                  type="button"
+                                                  className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                                                  onClick={() =>
+                                                    setNodeForm((current) => ({
+                                                      ...current,
+                                                      interfaceMethods: current.interfaceMethods.map(
+                                                        (item, methodIndex) =>
+                                                          methodIndex === index
+                                                            ? {
+                                                                ...item,
+                                                                args: item.args.filter(
+                                                                  (_arg, removeIndex) =>
+                                                                    removeIndex !== argIndex
+                                                                ),
+                                                              }
+                                                            : item
+                                                      ),
+                                                    }))
+                                                  }
+                                                >
+                                                  削除
+                                                </button>
+                                              </div>
+                                              <div className="mt-2 grid gap-2">
+                                                <div>
+                                                  <label className="text-xs font-semibold text-gray-700">
+                                                    引数名
+                                                  </label>
+                                                  <input
+                                                    type="text"
+                                                    value={arg.name}
+                                                    className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                                    onChange={(event) =>
+                                                      setNodeForm((current) => ({
+                                                        ...current,
+                                                        interfaceMethods: current.interfaceMethods.map(
+                                                          (item, methodIndex) =>
+                                                            methodIndex === index
+                                                              ? {
+                                                                  ...item,
+                                                                  args: item.args.map(
+                                                                    (argItem, itemIndex) =>
+                                                                      itemIndex === argIndex
+                                                                        ? {
+                                                                            ...argItem,
+                                                                            name: event.target.value,
+                                                                          }
+                                                                        : argItem
+                                                                  ),
+                                                                }
+                                                              : item
+                                                        ),
+                                                      }))
+                                                    }
+                                                    placeholder="例: id"
+                                                  />
+                                                </div>
+                                                <div>
+                                                  <label className="text-xs font-semibold text-gray-700">
+                                                    型
+                                                  </label>
+                                                  <input
+                                                    type="text"
+                                                    value={arg.type}
+                                                    className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                                    onChange={(event) =>
+                                                      setNodeForm((current) => ({
+                                                        ...current,
+                                                        interfaceMethods: current.interfaceMethods.map(
+                                                          (item, methodIndex) =>
+                                                            methodIndex === index
+                                                              ? {
+                                                                  ...item,
+                                                                  args: item.args.map(
+                                                                    (argItem, itemIndex) =>
+                                                                      itemIndex === argIndex
+                                                                        ? {
+                                                                            ...argItem,
+                                                                            type: event.target.value,
+                                                                          }
+                                                                        : argItem
+                                                                  ),
+                                                                }
+                                                              : item
+                                                        ),
+                                                      }))
+                                                    }
+                                                    placeholder="例: string"
+                                                  />
+                                                </div>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        メソッド返り値
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={method.returns}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            interfaceMethods: current.interfaceMethods.map(
+                                              (item, methodIndex) =>
+                                                methodIndex === index
+                                                  ? { ...item, returns: event.target.value }
+                                                  : item
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="例: User"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        補足コメント
+                                      </label>
+                                      <textarea
+                                        value={method.note}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        rows={2}
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            interfaceMethods: current.interfaceMethods.map(
+                                              (item, methodIndex) =>
+                                                methodIndex === index
+                                                  ? { ...item, note: event.target.value }
+                                                  : item
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="例: optional"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    ) : null}
+                    {isSection ? (
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-semibold text-gray-700">validation</label>
+                          <button
+                            type="button"
+                            className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                            onClick={() =>
+                              setNodeForm((current) => ({
+                                ...current,
+                                validations: [
+                                  ...current.validations,
+                                  { target: '', rule: '', message: '' },
+                                ],
+                              }))
+                            }
+                          >
+                            + 追加
+                          </button>
+                        </div>
+                        {nodeForm.validations.length === 0 ? (
+                          <div className="mt-2 text-xs text-gray-500">
+                            validationを追加してください。
+                          </div>
+                        ) : (
+                          <div className="mt-3 grid gap-3">
+                            {nodeForm.validations.map((rule, index) => (
+                              <div
+                                key={`section-validation-${index}`}
+                                className="rounded-md border border-gray-200 p-3"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs font-semibold text-gray-700">
+                                    validation {index + 1}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                                    onClick={() =>
+                                      setNodeForm((current) => ({
+                                        ...current,
+                                        validations: current.validations.filter(
+                                          (_item, ruleIndex) => ruleIndex !== index
+                                        ),
+                                      }))
+                                    }
+                                  >
+                                    削除
+                                  </button>
+                                </div>
+                                <div className="mt-2 grid gap-2">
+                                  <div>
+                                    <label className="text-xs font-semibold text-gray-700">
+                                      対象
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={rule.target}
+                                      className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                      onChange={(event) =>
+                                        setNodeForm((current) => ({
+                                          ...current,
+                                          validations: current.validations.map((item, ruleIndex) =>
+                                            ruleIndex === index
+                                              ? { ...item, target: event.target.value }
+                                              : item
+                                          ),
+                                        }))
+                                      }
+                                      placeholder="例: input.age"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs font-semibold text-gray-700">
+                                      ルール
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={rule.rule}
+                                      className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                      onChange={(event) =>
+                                        setNodeForm((current) => ({
+                                          ...current,
+                                          validations: current.validations.map((item, ruleIndex) =>
+                                            ruleIndex === index
+                                              ? { ...item, rule: event.target.value }
+                                              : item
+                                          ),
+                                        }))
+                                      }
+                                      placeholder="例: required"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs font-semibold text-gray-700">
+                                      メッセージ/補足
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={rule.message}
+                                      className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                      onChange={(event) =>
+                                        setNodeForm((current) => ({
+                                          ...current,
+                                          validations: current.validations.map((item, ruleIndex) =>
+                                            ruleIndex === index
+                                              ? { ...item, message: event.target.value }
+                                              : item
+                                          ),
+                                        }))
+                                      }
+                                      placeholder="例: 必須入力"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     ) : null}
                     <div>
                       <label className="text-xs font-semibold text-gray-700">補足コメント</label>
@@ -1851,14 +3042,17 @@ export default function FlowVisualization() {
     cancelNodeCreation,
     cancelNodeEdit,
     createClassInstance,
-    nodeForm.classConstructor,
+    nodeForm.classConstructorArgs,
     nodeForm.classMembers,
     nodeForm.classMethods,
     nodeForm.condition,
     nodeForm.functionArgs,
-    nodeForm.functionReturns,
+    nodeForm.functionReturnType,
+    nodeForm.interfaceMembers,
+    nodeForm.interfaceMethods,
     nodeForm.label,
     nodeForm.note,
+    nodeForm.validations,
     nodeModalOption,
     nodes,
     openNodeDeleteModal,
