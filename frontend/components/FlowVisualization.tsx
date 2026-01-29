@@ -42,7 +42,9 @@ const EDGE_CONTROL_TYPES = [
   'flow',
   'while',
   'for',
-  'if-else',
+  'if',
+  'elif',
+  'else',
   'break',
   'continue',
   'try-except',
@@ -52,6 +54,13 @@ const EDGE_CONTROL_TYPES = [
 
 type ControlType = (typeof EDGE_CONTROL_TYPES)[number];
 
+type ClassMethod = {
+  name: string;
+  args: string;
+  returns: string;
+  note: string;
+};
+
 type LogicNodeData = {
   label?: string;
   nodeKind: NodeKind;
@@ -59,6 +68,7 @@ type LogicNodeData = {
   controlType?: ControlType;
   condition?: string;
   note?: string;
+  instanceOfSectionId?: string;
 };
 
 type SectionNodeData = {
@@ -71,9 +81,7 @@ type SectionNodeData = {
   functionReturns?: string;
   classConstructor?: string;
   classMembers?: string;
-  classMethods?: string;
-  classMethodArgs?: string;
-  classMethodReturns?: string;
+  classMethods?: ClassMethod[];
 };
 
 type FlowNodeData = LogicNodeData | SectionNodeData;
@@ -110,7 +118,9 @@ const CONTROL_STYLE: Record<
   flow: { label: '', color: '#64748b', modalLabel: '通常（ラベルなし）' },
   while: { label: 'while', color: '#2563eb', edgeDash: '6 4' },
   for: { label: 'for', color: '#0f766e', edgeDash: '6 4' },
-  'if-else': { label: 'if-else', color: '#4f46e5' },
+  if: { label: 'if', color: '#4f46e5' },
+  elif: { label: 'elif', color: '#4f46e5' },
+  else: { label: 'else', color: '#4f46e5' },
   break: { label: 'break', color: '#b91c1c', edgeDash: '4 4' },
   continue: { label: 'continue', color: '#c2410c', edgeDash: '2 4' },
   'try-except': { label: 'try-except', color: '#15803d', edgeDash: '4 2' },
@@ -123,6 +133,8 @@ const SECTION_MIN_HEIGHT = 160;
 const SECTION_DEFAULT_WIDTH = 320;
 const SECTION_DEFAULT_HEIGHT = 220;
 const EDGE_STROKE_WIDTH = 3;
+const INSTANCE_OFFSET_X = 220;
+const INSTANCE_OFFSET_Y = 80;
 const DEFAULT_EDGE_CONTROL: ControlType = 'flow';
 
 type NodeFormState = {
@@ -133,14 +145,14 @@ type NodeFormState = {
   functionReturns: string;
   classConstructor: string;
   classMembers: string;
-  classMethods: string;
-  classMethodArgs: string;
-  classMethodReturns: string;
+  classMethods: ClassMethod[];
 };
 
 type EdgeFormState = {
   condition: string;
   note: string;
+  exceptionType: string;
+  exceptionOther: string;
 };
 
 const EMPTY_NODE_FORM: NodeFormState = {
@@ -151,14 +163,14 @@ const EMPTY_NODE_FORM: NodeFormState = {
   functionReturns: '',
   classConstructor: '',
   classMembers: '',
-  classMethods: '',
-  classMethodArgs: '',
-  classMethodReturns: '',
+  classMethods: [],
 };
 
 const EMPTY_EDGE_FORM: EdgeFormState = {
   condition: '',
   note: '',
+  exceptionType: '',
+  exceptionOther: '',
 };
 
 type NodeOption = {
@@ -231,6 +243,12 @@ function getNodeDisplayLabel(node: Node<FlowNodeData>) {
   return getLogicNodeLabel(node.data as LogicNodeData);
 }
 
+function buildClassInstanceLabel(classNode: Node<SectionNodeData>) {
+  const baseLabel = classNode.data.label?.trim() ?? '';
+  const displayLabel = baseLabel.length > 0 ? baseLabel : CONTROL_STYLE.class.label;
+  return `new ${displayLabel}()`;
+}
+
 function getNodeOptionForNode(node: Node<FlowNodeData>): NodeOption | null {
   if (node.type === 'sectionNode') {
     const data = node.data as SectionNodeData;
@@ -253,6 +271,99 @@ function isEventFromNodeOrEdge(event: ReactMouseEvent) {
 function normalizeText(value: string) {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+const TRY_EXCEPT_OPTIONS = [
+  { value: 'ValueError', label: 'ValueError' },
+  { value: 'TypeError', label: 'TypeError' },
+  { value: 'KeyError', label: 'KeyError' },
+  { value: 'IndexError', label: 'IndexError' },
+  { value: 'CustomError', label: 'CustomError' },
+  { value: 'other', label: 'その他' },
+] as const;
+
+function parseTryExceptCondition(condition: string) {
+  const trimmed = condition.trim();
+  if (trimmed.length === 0) {
+    return { exceptionType: '', exceptionOther: '' };
+  }
+  const matched = TRY_EXCEPT_OPTIONS.find(
+    (option) => option.value !== 'other' && option.value === trimmed
+  );
+  if (matched) {
+    return { exceptionType: matched.value, exceptionOther: '' };
+  }
+  return { exceptionType: 'other', exceptionOther: trimmed };
+}
+
+function buildConditionForControl(controlType: ControlType, form: EdgeFormState) {
+  if (controlType === 'flow') return undefined;
+  if (controlType === 'try-except') {
+    if (form.exceptionType === 'other') {
+      return normalizeText(form.exceptionOther);
+    }
+    return normalizeText(form.exceptionType);
+  }
+  return normalizeText(form.condition);
+}
+
+function getConditionMeta(controlType: ControlType) {
+  if (controlType === 'flow' || controlType === 'try-except') return null;
+  if (controlType === 'break') {
+    return { label: '理由', placeholder: '例: 条件を満たしたため' };
+  }
+  if (controlType === 'continue') {
+    return { label: '理由', placeholder: '例: スキップ条件に該当' };
+  }
+  if (controlType === 'function' || controlType === 'class') {
+    return { label: '呼び出し条件', placeholder: '例: userIdがある場合' };
+  }
+  if (controlType === 'while') {
+    return { label: '条件式', placeholder: '例: i < 10' };
+  }
+  if (controlType === 'for') {
+    return { label: '条件式', placeholder: '例: for item in items' };
+  }
+  if (controlType === 'if') {
+    return { label: '条件式', placeholder: '例: user.isAdmin' };
+  }
+  if (controlType === 'elif') {
+    return { label: '条件式', placeholder: '例: status === \"pending\"' };
+  }
+  if (controlType === 'else') {
+    return { label: '条件式', placeholder: '例: その他の条件' };
+  }
+  return { label: '条件式', placeholder: '条件を入力' };
+}
+
+function getIfControlOptions(
+  sourceId: string | null | undefined,
+  edges: Edge<LogicEdgeData>[],
+  currentEdgeId?: string | null,
+  currentEdgeControl?: ControlType | null
+): ControlType[] {
+  if (!sourceId) return ['if', 'elif', 'else'];
+  const otherEdges = edges.filter((edge) => edge.source === sourceId && edge.id !== currentEdgeId);
+  const hasIf = otherEdges.some((edge) => edge.data?.controlType === 'if');
+  const hasElse = otherEdges.some((edge) => edge.data?.controlType === 'else');
+  let options: ControlType[] = [];
+  if (!hasIf) {
+    options = ['if'];
+  } else if (hasElse) {
+    options = ['if', 'elif'];
+  } else {
+    options = ['if', 'elif', 'else'];
+  }
+  if (
+    currentEdgeControl &&
+    (currentEdgeControl === 'if' ||
+      currentEdgeControl === 'elif' ||
+      currentEdgeControl === 'else') &&
+    !options.includes(currentEdgeControl)
+  ) {
+    options = [...options, currentEdgeControl];
+  }
+  return options;
 }
 
 function buildEdgeLabel(controlType: ControlType, condition?: string, note?: string) {
@@ -335,9 +446,7 @@ function buildNodeFormFromNode(node: Node<FlowNodeData>): NodeFormState {
       functionReturns: data.functionReturns ?? '',
       classConstructor: data.classConstructor ?? '',
       classMembers: data.classMembers ?? '',
-      classMethods: data.classMethods ?? '',
-      classMethodArgs: data.classMethodArgs ?? '',
-      classMethodReturns: data.classMethodReturns ?? '',
+      classMethods: data.classMethods?.map((method) => ({ ...method })) ?? [],
     };
   }
   const data = node.data as LogicNodeData;
@@ -411,14 +520,25 @@ function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
     if (data.classMembers && data.classMembers.trim().length > 0) {
       details.push({ label: 'メンバ変数', value: data.classMembers });
     }
-    if (data.classMethods && data.classMethods.trim().length > 0) {
-      details.push({ label: 'メソッド名', value: data.classMethods });
-    }
-    if (data.classMethodArgs && data.classMethodArgs.trim().length > 0) {
-      details.push({ label: 'メソッド引数', value: data.classMethodArgs });
-    }
-    if (data.classMethodReturns && data.classMethodReturns.trim().length > 0) {
-      details.push({ label: 'メソッド返り値', value: data.classMethodReturns });
+    if (data.classMethods && data.classMethods.length > 0) {
+      data.classMethods.forEach((method, index) => {
+        const lines: string[] = [];
+        if (method.name && method.name.trim().length > 0) {
+          lines.push(`名前: ${method.name}`);
+        }
+        if (method.args && method.args.trim().length > 0) {
+          lines.push(`引数: ${method.args}`);
+        }
+        if (method.returns && method.returns.trim().length > 0) {
+          lines.push(`返り値: ${method.returns}`);
+        }
+        if (method.note && method.note.trim().length > 0) {
+          lines.push(`補足: ${method.note}`);
+        }
+        if (lines.length > 0) {
+          details.push({ label: `メソッド${index + 1}`, value: lines.join('\n') });
+        }
+      });
     }
   }
   if (data.note && data.note.trim().length > 0) {
@@ -506,6 +626,7 @@ export default function FlowVisualization() {
       controlType?: ControlType;
       condition?: string;
       note?: string;
+      instanceOfSectionId?: string;
     }): Node<LogicNodeData> => {
       const seq = nextNodeSeq.current++;
       return {
@@ -519,6 +640,7 @@ export default function FlowVisualization() {
           controlType: params.controlType,
           condition: params.condition,
           note: params.note,
+          instanceOfSectionId: params.instanceOfSectionId,
         },
       };
     },
@@ -535,9 +657,7 @@ export default function FlowVisualization() {
       functionReturns?: string;
       classConstructor?: string;
       classMembers?: string;
-      classMethods?: string;
-      classMethodArgs?: string;
-      classMethodReturns?: string;
+      classMethods?: ClassMethod[];
     }): Node<SectionNodeData> => {
       const seq = nextNodeSeq.current++;
       return {
@@ -555,8 +675,6 @@ export default function FlowVisualization() {
           classConstructor: params.classConstructor,
           classMembers: params.classMembers,
           classMethods: params.classMethods,
-          classMethodArgs: params.classMethodArgs,
-          classMethodReturns: params.classMethodReturns,
         },
       };
     },
@@ -664,7 +782,7 @@ export default function FlowVisualization() {
         return;
       }
       const style = CONTROL_STYLE[controlType];
-      const condition = normalizeText(edgeForm.condition);
+      const condition = buildConditionForControl(controlType, edgeForm);
       const note = normalizeText(edgeForm.note);
       const edgeId = `edge-${nextEdgeSeq.current++}`;
       const edge: Edge<LogicEdgeData> = {
@@ -699,7 +817,15 @@ export default function FlowVisualization() {
       }
       setPendingConnection(null);
     },
-    [edgeForm.condition, edgeForm.note, pendingConnection, setEdges, setNodes]
+    [
+      edgeForm.condition,
+      edgeForm.exceptionOther,
+      edgeForm.exceptionType,
+      edgeForm.note,
+      pendingConnection,
+      setEdges,
+      setNodes,
+    ]
   );
 
   const cancelConnection = useCallback(() => {
@@ -726,9 +852,7 @@ export default function FlowVisualization() {
         functionReturns: isFunction ? normalizeText(nodeForm.functionReturns) : undefined,
         classConstructor: !isFunction ? normalizeText(nodeForm.classConstructor) : undefined,
         classMembers: !isFunction ? normalizeText(nodeForm.classMembers) : undefined,
-        classMethods: !isFunction ? normalizeText(nodeForm.classMethods) : undefined,
-        classMethodArgs: !isFunction ? normalizeText(nodeForm.classMethodArgs) : undefined,
-        classMethodReturns: !isFunction ? normalizeText(nodeForm.classMethodReturns) : undefined,
+        classMethods: !isFunction ? nodeForm.classMethods.map((method) => ({ ...method })) : undefined,
       });
       setNodes((currentNodes) => [newSection, ...currentNodes]);
       setPendingNodeClientPosition(null);
@@ -805,6 +929,17 @@ export default function FlowVisualization() {
       const targetSeq = (target.data as FlowNodeData).seq;
       const absolutePos = target.positionAbsolute ?? target.position;
       const shouldDetachChildren = targetIsSection && !nextIsSection;
+      let nextClassInstanceLabel: string | null = null;
+      if (targetIsSection && nextIsSection) {
+        const targetData = target.data as SectionNodeData;
+        const nextSectionType = nodeModalOption.sectionType ?? 'function';
+        if (targetData.sectionType === 'class' && nextSectionType === 'class') {
+          const nextLabel = normalizeText(nodeForm.label) ?? '';
+          const displayLabel =
+            nextLabel.length > 0 ? nextLabel : CONTROL_STYLE.class.label;
+          nextClassInstanceLabel = `new ${displayLabel}()`;
+        }
+      }
       const nextNodes = currentNodes.map((node) => {
         if (node.id === target.id) {
           if (nextIsSection) {
@@ -830,10 +965,8 @@ export default function FlowVisualization() {
                 functionReturns: isFunction ? normalizeText(nodeForm.functionReturns) : undefined,
                 classConstructor: !isFunction ? normalizeText(nodeForm.classConstructor) : undefined,
                 classMembers: !isFunction ? normalizeText(nodeForm.classMembers) : undefined,
-                classMethods: !isFunction ? normalizeText(nodeForm.classMethods) : undefined,
-                classMethodArgs: !isFunction ? normalizeText(nodeForm.classMethodArgs) : undefined,
-                classMethodReturns: !isFunction
-                  ? normalizeText(nodeForm.classMethodReturns)
+                classMethods: !isFunction
+                  ? nodeForm.classMethods.map((method) => ({ ...method }))
                   : undefined,
               },
             };
@@ -844,6 +977,7 @@ export default function FlowVisualization() {
               ? nodeModalOption.label
               : normalizeText(nodeForm.label) ?? nodeModalOption.nodeLabel ?? '';
           const controlType = (node.data as LogicNodeData).controlType;
+          const instanceOfSectionId = (node.data as LogicNodeData).instanceOfSectionId;
           const keepParent = !targetIsSection;
           return {
             ...node,
@@ -859,8 +993,24 @@ export default function FlowVisualization() {
               controlType,
               condition: isNormal ? normalizeText(nodeForm.condition) : undefined,
               note: normalizeText(nodeForm.note),
+              instanceOfSectionId,
             },
           };
+        }
+        if (nextClassInstanceLabel) {
+          const nodeData = node.data as FlowNodeData;
+          if (
+            node.type === 'logicNode' &&
+            (nodeData as LogicNodeData).instanceOfSectionId === target.id
+          ) {
+            return {
+              ...node,
+              data: {
+                ...(node.data as LogicNodeData),
+                label: nextClassInstanceLabel,
+              },
+            };
+          }
         }
         if (shouldDetachChildren && node.parentNode === target.id) {
           const absoluteChildPos = node.positionAbsolute ?? node.position;
@@ -917,14 +1067,29 @@ export default function FlowVisualization() {
 
   const deleteNodeById = useCallback(
     (nodeId: string) => {
+      const removedIds = new Set([nodeId]);
+      const removedNode = nodes.find((node) => node.id === nodeId);
+      const removedIsSection = removedNode?.type === 'sectionNode';
+      const removedIsClassSection =
+        removedIsSection &&
+        (removedNode?.data as SectionNodeData | undefined)?.sectionType === 'class';
+      if (removedIsClassSection) {
+        nodes.forEach((node) => {
+          if (node.type !== 'logicNode') return;
+          const data = node.data as LogicNodeData;
+          if (data.instanceOfSectionId === nodeId) {
+            removedIds.add(node.id);
+          }
+        });
+      }
       setEdges((currentEdges) =>
-        currentEdges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId)
+        currentEdges.filter(
+          (edge) => !removedIds.has(edge.source) && !removedIds.has(edge.target)
+        )
       );
       setNodes((currentNodes) => {
-        const removedNode = currentNodes.find((node) => node.id === nodeId);
-        const removedIsSection = removedNode?.type === 'sectionNode';
         return currentNodes
-          .filter((node) => node.id !== nodeId)
+          .filter((node) => !removedIds.has(node.id))
           .map((node) => {
             if (!removedIsSection || node.parentNode !== nodeId) return node;
             const absolutePos = node.positionAbsolute ?? node.position;
@@ -938,7 +1103,52 @@ export default function FlowVisualization() {
       });
       setPendingNodeDelete(null);
     },
-    [setEdges, setNodes]
+    [nodes, setEdges, setNodes]
+  );
+
+  const createClassInstance = useCallback(
+    (node: Node<FlowNodeData>) => {
+      if (node.type !== 'sectionNode') return;
+      const sectionData = node.data as SectionNodeData;
+      if (sectionData.sectionType !== 'class') return;
+      const classNode = node as Node<SectionNodeData>;
+      const classPosition = classNode.positionAbsolute ?? classNode.position;
+      const instanceCount = nodes.filter((item) => {
+        if (item.type !== 'logicNode') return false;
+        const data = item.data as LogicNodeData;
+        return data.instanceOfSectionId === classNode.id;
+      }).length;
+      const instancePosition = {
+        x: classPosition.x - INSTANCE_OFFSET_X,
+        y: classPosition.y + instanceCount * INSTANCE_OFFSET_Y,
+      };
+      const instanceNode = createLogicNode({
+        kind: 'normal',
+        label: buildClassInstanceLabel(classNode),
+        position: instancePosition,
+        controlType: 'class',
+        instanceOfSectionId: classNode.id,
+      });
+      setNodes((currentNodes) => [...currentNodes, instanceNode]);
+
+      const style = CONTROL_STYLE.class;
+      const edgeId = `edge-${nextEdgeSeq.current++}`;
+      const edge: Edge<LogicEdgeData> = {
+        id: edgeId,
+        type: 'logicEdge',
+        source: instanceNode.id,
+        target: classNode.id,
+        label: buildEdgeLabel('class', undefined, undefined),
+        style: {
+          stroke: style.color,
+          strokeWidth: EDGE_STROKE_WIDTH,
+          strokeDasharray: style.edgeDash,
+        },
+        data: { controlType: 'class' },
+      };
+      setEdges((currentEdges) => addEdge(edge, currentEdges));
+    },
+    [createLogicNode, nodes, setEdges, setNodes]
   );
 
   const onNodeDoubleClick = useCallback(
@@ -959,9 +1169,16 @@ export default function FlowVisualization() {
       setPendingConnection(null);
       setPendingNodeEdit(null);
       setSelectedEdgeControl(edge.data?.controlType ?? DEFAULT_EDGE_CONTROL);
+      const conditionValue = edge.data?.condition ?? '';
+      const tryExceptForm =
+        edge.data?.controlType === 'try-except'
+          ? parseTryExceptCondition(conditionValue)
+          : { exceptionType: '', exceptionOther: '' };
       setEdgeForm({
-        condition: edge.data?.condition ?? '',
+        condition: conditionValue,
         note: edge.data?.note ?? '',
+        exceptionType: tryExceptForm.exceptionType,
+        exceptionOther: tryExceptForm.exceptionOther,
       });
       setPendingEdgeEdit({ id: edge.id });
     },
@@ -979,7 +1196,7 @@ export default function FlowVisualization() {
   const updateEdgeControl = useCallback(
     (edgeId: string, controlType: ControlType) => {
       const style = CONTROL_STYLE[controlType];
-      const condition = normalizeText(edgeForm.condition);
+      const condition = buildConditionForControl(controlType, edgeForm);
       const note = normalizeText(edgeForm.note);
       setEdges((currentEdges) =>
         currentEdges.map((edge) => {
@@ -999,7 +1216,7 @@ export default function FlowVisualization() {
         })
       );
     },
-    [edgeForm.condition, edgeForm.note, setEdges]
+    [edgeForm.condition, edgeForm.exceptionOther, edgeForm.exceptionType, edgeForm.note, setEdges]
   );
 
   const onEdgeControlChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
@@ -1075,6 +1292,25 @@ export default function FlowVisualization() {
   const edgeModalContent = useMemo(() => {
     const isEdit = Boolean(pendingEdgeEdit);
     if (!pendingConnection && !pendingEdgeEdit) return null;
+    const editingEdge = pendingEdgeEdit
+      ? edges.find((edge) => edge.id === pendingEdgeEdit.id) ?? null
+      : null;
+    const sourceId = pendingConnection?.source ?? editingEdge?.source ?? null;
+    const ifOptions = getIfControlOptions(
+      sourceId,
+      edges,
+      editingEdge?.id ?? null,
+      editingEdge?.data?.controlType ?? null
+    );
+    const availableEdgeControls = EDGE_CONTROL_TYPES.filter((type) => {
+      if (type === 'if' || type === 'elif' || type === 'else') {
+        return ifOptions.includes(type);
+      }
+      return true;
+    });
+    const conditionMeta = getConditionMeta(selectedEdgeControl);
+    const isTryExcept = selectedEdgeControl === 'try-except';
+
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
         <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
@@ -1093,7 +1329,7 @@ export default function FlowVisualization() {
               className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
               onChange={onEdgeControlChange}
             >
-              {EDGE_CONTROL_TYPES.map((type) => (
+              {availableEdgeControls.map((type) => (
                 <option key={type} value={type}>
                   {CONTROL_STYLE[type].modalLabel ?? CONTROL_STYLE[type].label}
                 </option>
@@ -1101,18 +1337,63 @@ export default function FlowVisualization() {
             </select>
           </div>
           <div className="mt-4 grid gap-3">
-            <div>
-              <label className="text-xs font-semibold text-gray-700">条件式</label>
-              <input
-                type="text"
-                value={edgeForm.condition}
-                className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
-                onChange={(event) =>
-                  setEdgeForm((current) => ({ ...current, condition: event.target.value }))
-                }
-                placeholder="例: n > 5 / for n in 5 / 〇〇Error"
-              />
-            </div>
+            {isTryExcept ? (
+              <>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">例外種別</label>
+                  <select
+                    value={edgeForm.exceptionType}
+                    className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                    onChange={(event) =>
+                      setEdgeForm((current) => ({
+                        ...current,
+                        exceptionType: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="">選択してください</option>
+                    {TRY_EXCEPT_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {edgeForm.exceptionType === 'other' ? (
+                  <div>
+                    <label className="text-xs font-semibold text-gray-700">例外詳細</label>
+                    <input
+                      type="text"
+                      value={edgeForm.exceptionOther}
+                      className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                      onChange={(event) =>
+                        setEdgeForm((current) => ({
+                          ...current,
+                          exceptionOther: event.target.value,
+                        }))
+                      }
+                      placeholder="例: CustomNotFoundError"
+                    />
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+            {conditionMeta ? (
+              <div>
+                <label className="text-xs font-semibold text-gray-700">
+                  {conditionMeta.label}
+                </label>
+                <input
+                  type="text"
+                  value={edgeForm.condition}
+                  className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                  onChange={(event) =>
+                    setEdgeForm((current) => ({ ...current, condition: event.target.value }))
+                  }
+                  placeholder={conditionMeta.placeholder}
+                />
+              </div>
+            ) : null}
             <div>
               <label className="text-xs font-semibold text-gray-700">補足コメント</label>
               <textarea
@@ -1163,7 +1444,10 @@ export default function FlowVisualization() {
     closeEdgeModal,
     deleteEdgeById,
     edgeForm.condition,
+    edgeForm.exceptionOther,
+    edgeForm.exceptionType,
     edgeForm.note,
+    edges,
     onEdgeControlChange,
     pendingConnection,
     pendingEdgeEdit,
@@ -1307,54 +1591,162 @@ export default function FlowVisualization() {
                             placeholder="例: id, name, email"
                           />
                         </div>
+                        {isEdit && editingNode ? (
+                          <div>
+                            <button
+                              type="button"
+                              className="rounded-md border border-gray-300 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              onClick={() => createClassInstance(editingNode)}
+                            >
+                              + 初期化ノードを追加
+                            </button>
+                          </div>
+                        ) : null}
                         <div>
-                          <label className="text-xs font-semibold text-gray-700">メソッド名</label>
-                          <textarea
-                            value={nodeForm.classMethods}
-                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
-                            rows={2}
-                            onChange={(event) =>
-                              setNodeForm((current) => ({
-                                ...current,
-                                classMethods: event.target.value,
-                              }))
-                            }
-                            placeholder="例: fetch / update"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs font-semibold text-gray-700">
-                            メソッド引数
-                          </label>
-                          <textarea
-                            value={nodeForm.classMethodArgs}
-                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
-                            rows={2}
-                            onChange={(event) =>
-                              setNodeForm((current) => ({
-                                ...current,
-                                classMethodArgs: event.target.value,
-                              }))
-                            }
-                            placeholder="例: update(name: string)"
-                          />
-                        </div>
-                        <div>
-                          <label className="text-xs font-semibold text-gray-700">
-                            メソッド返り値
-                          </label>
-                          <textarea
-                            value={nodeForm.classMethodReturns}
-                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
-                            rows={2}
-                            onChange={(event) =>
-                              setNodeForm((current) => ({
-                                ...current,
-                                classMethodReturns: event.target.value,
-                              }))
-                            }
-                            placeholder="例: User"
-                          />
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-gray-700">
+                              メソッド一覧
+                            </label>
+                            <button
+                              type="button"
+                              className="rounded-md border border-gray-300 px-2 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              onClick={() =>
+                                setNodeForm((current) => ({
+                                  ...current,
+                                  classMethods: [
+                                    ...current.classMethods,
+                                    { name: '', args: '', returns: '', note: '' },
+                                  ],
+                                }))
+                              }
+                            >
+                              + メソッドを追加
+                            </button>
+                          </div>
+                          {nodeForm.classMethods.length === 0 ? (
+                            <div className="mt-2 text-xs text-gray-500">
+                              メソッドを追加してください。
+                            </div>
+                          ) : (
+                            <div className="mt-3 grid gap-3">
+                              {nodeForm.classMethods.map((method, index) => (
+                                <div
+                                  key={`class-method-${index}`}
+                                  className="rounded-md border border-gray-200 p-3"
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div className="text-xs font-semibold text-gray-700">
+                                      メソッド {index + 1}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                                      onClick={() =>
+                                        setNodeForm((current) => ({
+                                          ...current,
+                                          classMethods: current.classMethods.filter(
+                                            (_item, methodIndex) => methodIndex !== index
+                                          ),
+                                        }))
+                                      }
+                                    >
+                                      削除
+                                    </button>
+                                  </div>
+                                  <div className="mt-2 grid gap-2">
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        メソッド名
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={method.name}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            classMethods: current.classMethods.map(
+                                              (item, methodIndex) =>
+                                                methodIndex === index
+                                                  ? { ...item, name: event.target.value }
+                                                  : item
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="例: fetchUser"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        メソッド引数
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={method.args}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            classMethods: current.classMethods.map(
+                                              (item, methodIndex) =>
+                                                methodIndex === index
+                                                  ? { ...item, args: event.target.value }
+                                                  : item
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="例: id: string"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        メソッド返り値
+                                      </label>
+                                      <input
+                                        type="text"
+                                        value={method.returns}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            classMethods: current.classMethods.map(
+                                              (item, methodIndex) =>
+                                                methodIndex === index
+                                                  ? { ...item, returns: event.target.value }
+                                                  : item
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="例: User"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-semibold text-gray-700">
+                                        補足コメント
+                                      </label>
+                                      <textarea
+                                        value={method.note}
+                                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                                        rows={2}
+                                        onChange={(event) =>
+                                          setNodeForm((current) => ({
+                                            ...current,
+                                            classMethods: current.classMethods.map(
+                                              (item, methodIndex) =>
+                                                methodIndex === index
+                                                  ? { ...item, note: event.target.value }
+                                                  : item
+                                            ),
+                                          }))
+                                        }
+                                        placeholder="例: 例外時はnullを返す"
+                                      />
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </>
                     ) : null}
@@ -1458,10 +1850,9 @@ export default function FlowVisualization() {
     applyNodeEdit,
     cancelNodeCreation,
     cancelNodeEdit,
+    createClassInstance,
     nodeForm.classConstructor,
     nodeForm.classMembers,
-    nodeForm.classMethodArgs,
-    nodeForm.classMethodReturns,
     nodeForm.classMethods,
     nodeForm.condition,
     nodeForm.functionArgs,
