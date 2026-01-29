@@ -36,9 +36,9 @@ LogicMap is a web application that visualizes reasoning and algorithm flows usin
 
 ## 必要ファイル / Required Files
 
-`docker-compose.yml` は以下の環境変数を参照します。リポジトリ直下に `.env` を作成して設定してください。
+`docker-compose.yml` は以下の環境変数を参照します。リポジトリ直下に `.env.local` を作成して設定してください。
 
-`docker-compose.yml` references the following environment variables. Create a `.env` file at the repository root.
+`docker-compose.yml` references the following environment variables. Create a `.env.local` file at the repository root.
 
 ```env
 BACKEND_PORT=8080
@@ -46,6 +46,13 @@ FRONTEND_PORT=3000
 NEXT_PUBLIC_API_URL=http://localhost:8080
 API_BASE_URL=http://backend:8080
 NODE_ENV=development
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=logicmap
+DB_USER=logicmap
+DB_PASSWORD=logicmap
+DB_SSLMODE=disable
+CORS_ALLOW_ORIGINS=http://localhost:3000
 ```
 
 - Frontend: http://localhost:3000
@@ -53,9 +60,15 @@ NODE_ENV=development
 
 ## API仕様 / API Specification
 
-バックエンド/フロントエンドAPIの仕様は後日対応します。
+保存機能向けのAPI（マルチユーザー前提）は以下を提供します。
 
-Backend/Frontend API specifications will be added later.
+The backend API for saving flows (multi-user) provides the following endpoints.
+
+- `GET /health`
+- `GET /flows` (Header: `X-User-Id`)
+- `POST /flows` (Header: `X-User-Id`)
+- `GET /flows/{id}` (Header: `X-User-Id`)
+- `DELETE /flows/{id}` (Header: `X-User-Id`)
 
 ## AWSデプロイ / AWS Deployment
 

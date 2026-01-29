@@ -14,7 +14,7 @@ cd logicmap
 #### オプションA: Dockerを使用（推奨）
 
 ```bash
-docker compose up --build
+docker compose --env-file .env.local up --build
 ```
 
 これだけです！以下のURLにアクセス:
@@ -26,6 +26,23 @@ docker compose up --build
 **必要なもの:**
 - Node.js 20+
 - Go 1.21+
+- PostgreSQL 15+
+
+**.env.local を用意**
+```env
+BACKEND_PORT=8080
+FRONTEND_PORT=3000
+NEXT_PUBLIC_API_URL=http://localhost:8080
+API_BASE_URL=http://localhost:8080
+NODE_ENV=development
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=logicmap
+DB_USER=logicmap
+DB_PASSWORD=logicmap
+DB_SSLMODE=disable
+CORS_ALLOW_ORIGINS=http://localhost:3000
+```
 
 **ターミナル1 - バックエンド起動:**
 ```bash
@@ -44,19 +61,10 @@ npm run dev
 
 ## 使い方
 
-1. **Markdownを入力**
-   ```markdown
-   # バブルソート
-   1. 配列の準備
-   2. 隣接要素を比較
-   3. 必要に応じて交換
-   4. すべてソートされるまで繰り返す
-   5. 完了
-   ```
-
-2. **「Visualize Flow」ボタンをクリック**
-
-3. **フローチャートが表示されます！**
+1. **背景をダブルクリックしてノードを追加**
+2. **ノード同士を繋げてフローを作成**
+3. **左上の「保存する」で保存**
+4. **保存済みボタンから復元**
    - ドラッグして移動
    - マウスホイールでズーム
    - ミニマップで全体表示
@@ -155,10 +163,14 @@ docker compose up
 # ヘルスチェック
 curl http://localhost:8080/health
 
-# 解析テスト
-curl -X POST http://localhost:8080/parse \
+# 保存一覧
+curl -H "X-User-Id: local-dev-user" http://localhost:8080/flows
+
+# 保存
+curl -X POST http://localhost:8080/flows \
   -H "Content-Type: application/json" \
-  -d '{"markdown":"# Test"}'
+  -H "X-User-Id: local-dev-user" \
+  -d '{"name":"テスト保存","snapshot":{"version":1,"nodes":[],"edges":[],"nextNodeSeq":1,"nextEdgeSeq":1}}'
 ```
 
 ### ログを見る

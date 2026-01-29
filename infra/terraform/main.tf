@@ -602,7 +602,15 @@ module "backend_service" {
     },
     var.backend_container_environment,
   )
-  secrets = var.backend_container_secrets
+  secrets = concat(
+    var.backend_container_secrets,
+    [
+      {
+        name      = "DB_PASSWORD"
+        valueFrom = "${aws_secretsmanager_secret.db_master_password.arn}:password::"
+      },
+    ],
+  )
   tags    = local.tags
 }
 
