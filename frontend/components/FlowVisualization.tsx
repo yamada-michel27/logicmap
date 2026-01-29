@@ -785,6 +785,7 @@ function normalizeParallelOffsets(edges: Edge<LogicEdgeData>[]) {
             strokeWidth:
               (edge.style?.strokeWidth as number | undefined) ?? EDGE_STROKE_WIDTH,
             strokeDasharray: edge.style?.strokeDasharray ?? desiredDash,
+            zIndex: (edge.style?.zIndex as number | undefined) ?? 1000,
           }
         : edge.style;
     const nextMarkerEnd =
@@ -1120,24 +1121,29 @@ function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
   }
   return (
     <div
-      className="relative h-full w-full rounded-xl border-2 border-dashed p-3 text-sm text-slate-800 backdrop-blur-md shadow-lg ring-1 ring-white/40"
-      style={{ borderColor: style.color, backgroundColor: sectionBg }}
+      className="relative h-full w-full rounded-xl border-2 border-dashed p-3 text-sm text-slate-800"
+      style={{
+        borderColor: style.color,
+        backgroundColor: 'transparent',
+        zIndex: -1,
+        pointerEvents: 'none'
+      }}
     >
       <NodeResizer
         isVisible={selected}
         minWidth={SECTION_MIN_WIDTH}
         minHeight={SECTION_MIN_HEIGHT}
       />
-      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: style.color }}>
+      <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: style.color, pointerEvents: 'auto' }}>
         {style.label}
       </div>
       {data.label && data.label.trim().length > 0 ? (
-        <div className="mt-1 text-sm font-semibold text-gray-900 whitespace-pre-wrap">
+        <div className="mt-1 text-sm font-semibold text-gray-900 whitespace-pre-wrap" style={{ pointerEvents: 'auto' }}>
           {data.label}
         </div>
       ) : null}
       {details.length > 0 ? (
-        <div className="mt-2 space-y-1 text-xs text-gray-700">
+        <div className="mt-2 space-y-1 text-xs text-gray-700" style={{ pointerEvents: 'auto' }}>
           {details.map((item, index) => (
             <div key={`${item.label}-${index}`} className="whitespace-pre-wrap">
               <span className="font-semibold">{item.label}:</span> {item.value}
@@ -1710,8 +1716,8 @@ export default function FlowVisualization() {
       ];
 
       // エッジを正しい形式で作成（完全なDFSフロー）
-      const flowStyle = CONTROL_STYLE.flow;
-      const ifStyle = CONTROL_STYLE.if;
+      const flowStyle = { ...CONTROL_STYLE.flow, zIndex: 1000 };
+      const ifStyle = { ...CONTROL_STYLE.if, zIndex: 1000 };
       const newEdges: Edge<LogicEdgeData>[] = [
         // Start → 関数呼び出しノード
         {
@@ -1893,6 +1899,54 @@ export default function FlowVisualization() {
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
+        // visited.has(current) の FALSE 分岐（既に訪問済みの場合はスキップしてwhile先頭に戻る）
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: visitedCheckIf.id,
+          target: popNode.id,
+          sourceHandle: 'h-right',
+          targetHandle: 'h-left',
+          data: { controlType: 'if', condition: 'visited.has(current) === true', note: '既に訪問済み→スキップ', validations: [], parallelOffset: 0 },
+          style: CONTROL_STYLE.if,
+          markerEnd: { type: MarkerType.ArrowClosed, color: CONTROL_STYLE.if.color },
+        },
+        // neighbor未訪問チェックのFALSE分岐（訪問済みの場合は次のneighborへ）
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: neighborCheckNode.id,
+          target: forLoopNode.id,
+          sourceHandle: 'h-right',
+          targetHandle: 'h-left',
+          data: { controlType: 'if', condition: 'visited.has(neighbor) === true', note: '訪問済み→次のneighbor', validations: [], parallelOffset: 0 },
+          style: CONTROL_STYLE.if,
+          markerEnd: { type: MarkerType.ArrowClosed, color: CONTROL_STYLE.if.color },
+        },
+        // pushNeighborNode後にforループに戻る（次のneighborを処理）
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: pushNeighborNode.id,
+          target: forLoopNode.id,
+          sourceHandle: 'h-right',
+          targetHandle: 'h-left',
+          data: { controlType: 'flow', condition: '', note: '次のneighborを処理', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // forLoop終了後、whileループの先頭に戻る（次のstack要素を処理）
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: forLoopNode.id,
+          target: popNode.id,
+          sourceHandle: 'h-bottom',
+          targetHandle: 'h-bottom',
+          data: { controlType: 'flow', condition: 'forループ終了', note: '次のstack要素を処理', validations: [], parallelOffset: 1 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
       ];
 
       setNodes(prev => [...prev, ...newNodes]);
@@ -2061,6 +2115,7 @@ export default function FlowVisualization() {
           stroke: style.color,
           strokeWidth: EDGE_STROKE_WIDTH,
           strokeDasharray: style.edgeDash,
+          zIndex: 1000,
         },
         markerEnd: { type: MarkerType.ArrowClosed, color: style.color },
         data: { controlType, condition, note, validations, parallelOffset: 0 },
@@ -2488,6 +2543,7 @@ export default function FlowVisualization() {
           stroke: style.color,
           strokeWidth: EDGE_STROKE_WIDTH,
           strokeDasharray: style.edgeDash,
+          zIndex: 1000,
         },
         markerEnd: { type: MarkerType.ArrowClosed, color: style.color },
         data: { controlType: 'flow', validations: [] },
@@ -2641,6 +2697,7 @@ export default function FlowVisualization() {
               stroke: style.color,
               strokeWidth: EDGE_STROKE_WIDTH,
               strokeDasharray: style.edgeDash,
+              zIndex: 1000,
             },
             markerEnd: { type: MarkerType.ArrowClosed, color: style.color },
             data: { ...edge.data, controlType, condition, note, validations },
