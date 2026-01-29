@@ -79,6 +79,7 @@ type SectionNodeData = {
   seq: number;
   controlType?: NodeControlType;
   note?: string;
+  entryNodeId?: string;
   functionArgs?: TypedField[];
   functionReturnType?: string;
   functionReturnValue?: string;
@@ -236,6 +237,7 @@ type NodeFormState = {
   label: string;
   condition: string;
   note: string;
+  entryNodeId: string;
   functionArgs: TypedField[];
   functionReturnType: string;
   functionReturnValue: string;
@@ -260,6 +262,7 @@ const EMPTY_NODE_FORM: NodeFormState = {
   label: '',
   condition: '',
   note: '',
+  entryNodeId: '',
   functionArgs: [],
   functionReturnType: '',
   functionReturnValue: '',
@@ -638,6 +641,21 @@ function getConditionMeta(controlType: EdgeControlType) {
   return { label: '条件式', placeholder: '条件を入力' };
 }
 
+function isSectionEntryConnection(
+  nodes: Node<FlowNodeData>[],
+  connection: Connection
+): boolean {
+  if (!connection.source || !connection.target) return false;
+  const sourceNode = nodes.find((node) => node.id === connection.source);
+  if (!sourceNode || sourceNode.type !== 'sectionNode') return false;
+  const entryNodeId = (sourceNode.data as SectionNodeData).entryNodeId;
+  if (!entryNodeId) return false;
+  const targetNode = nodes.find((node) => node.id === connection.target);
+  if (!targetNode || targetNode.type !== 'logicNode') return false;
+  if (targetNode.parentNode !== sourceNode.id) return false;
+  return entryNodeId === connection.target;
+}
+
 function getIfControlOptions(
   sourceId: string | null | undefined,
   edges: Edge<LogicEdgeData>[],
@@ -887,6 +905,7 @@ function buildNodeFormFromNode(node: Node<FlowNodeData>): NodeFormState {
       ...base,
       label: data.label ?? '',
       note: data.note ?? '',
+      entryNodeId: data.entryNodeId ?? '',
       functionArgs: data.functionArgs?.map((arg) => ({ ...arg })) ?? [],
       functionReturnType: data.functionReturnType ?? '',
       functionReturnValue: data.functionReturnValue ?? '',
@@ -1246,6 +1265,7 @@ export default function FlowVisualization() {
       label: string;
       position: XYPosition;
       note?: string;
+      entryNodeId?: string;
       functionArgs?: TypedField[];
       functionReturnType?: string;
       functionReturnValue?: string;
@@ -1257,18 +1277,23 @@ export default function FlowVisualization() {
       interfaceMembers?: TypedField[];
       interfaceMethods?: ClassMethod[];
       validations?: ValidationRule[];
+      style?: { width?: number; height?: number };
     }): Node<SectionNodeData> => {
       const seq = nextNodeSeq.current++;
       return {
         id: `section-${seq}`,
         type: 'sectionNode',
         position: params.position,
-        style: { width: SECTION_DEFAULT_WIDTH, height: SECTION_DEFAULT_HEIGHT },
+        style: {
+          width: params.style?.width ?? SECTION_DEFAULT_WIDTH,
+          height: params.style?.height ?? SECTION_DEFAULT_HEIGHT
+        },
         data: {
           label: params.label,
           sectionType: params.sectionType,
           seq,
           note: params.note,
+          entryNodeId: params.entryNodeId,
           functionArgs: params.functionArgs,
           functionReturnType: params.functionReturnType,
           functionReturnValue: params.functionReturnValue,
@@ -1320,20 +1345,30 @@ export default function FlowVisualization() {
     []
   );
 
-  const onConnect = useCallback((params: Connection) => {
-    setPendingNodeClientPosition(null);
-    setPendingNodeDelete(null);
-    setPendingNodeEdit(null);
-    setPendingEdgeEdit(null);
-    setPendingMemoEdit(null);
-    setPendingMemoClientPosition(null);
-    setSelectedEdgeControl(DEFAULT_EDGE_CONTROL);
-    setEdgeForm({ ...EMPTY_EDGE_FORM });
-    setPendingConnection(params);
-  }, []);
+  const onConnect = useCallback(
+    (params: Connection) => {
+      if (isSectionEntryConnection(nodes, params)) {
+        setPendingConnection(null);
+        return;
+      }
+      setPendingNodeClientPosition(null);
+      setPendingNodeDelete(null);
+      setPendingNodeEdit(null);
+      setPendingEdgeEdit(null);
+      setPendingMemoEdit(null);
+      setPendingMemoClientPosition(null);
+      setSelectedEdgeControl(DEFAULT_EDGE_CONTROL);
+      setEdgeForm({ ...EMPTY_EDGE_FORM });
+      setPendingConnection(params);
+    },
+    [nodes]
+  );
 
   const onEdgeUpdate = useCallback(
     (oldEdge: Edge<LogicEdgeData>, newConnection: Connection) => {
+      if (isSectionEntryConnection(nodes, newConnection)) {
+        return;
+      }
       setPendingNodeClientPosition(null);
       setPendingNodeDelete(null);
       setPendingNodeEdit(null);
@@ -1353,7 +1388,7 @@ export default function FlowVisualization() {
         )
       );
     },
-    [setEdges]
+    [nodes, setEdges]
   );
 
   const openNodeModalAtClient = useCallback((event: ReactMouseEvent) => {
@@ -1442,6 +1477,30 @@ export default function FlowVisualization() {
     setIsTemplateModalOpen(false);
   }, []);
 
+  // セクションサイズを動的に計算するヘルパー関数
+  const calculateSectionSize = useCallback((
+    nodes: Array<{ position: { x: number; y: number } }>,
+    nodeWidth = 150, // 標準ノード幅
+    nodeHeight = 40,  // 標準ノード高
+    padding = 30,     // セクション内パディング（増量）
+    bottomPadding = 40 // 下側に追加の余白
+  ) => {
+    if (nodes.length === 0) {
+      return { width: 600, height: 150 }; // 最小幅を大幅に拡張
+    }
+
+    // 各ノードの境界を計算
+    const minX = Math.min(...nodes.map(n => n.position.x));
+    const maxX = Math.max(...nodes.map(n => n.position.x + nodeWidth));
+    const minY = Math.min(...nodes.map(n => n.position.y));
+    const maxY = Math.max(...nodes.map(n => n.position.y + nodeHeight));
+
+    const width = Math.max(600, maxX - minX + padding * 2); // 最小幅を600pxに拡張
+    const height = Math.max(150, maxY - minY + padding * 2 + 40 + bottomPadding); // 十分な高さを確保
+
+    return { width, height };
+  }, []);
+
   const applyTemplate = useCallback((templateId: TemplateType) => {
     const wrapper = wrapperRef.current;
     const instance = reactFlowInstance.current;
@@ -1454,58 +1513,104 @@ export default function FlowVisualization() {
     const flowCenter = instance.screenToFlowPosition(viewportCenter);
 
     if (templateId === 'dfs') {
-      // DFS（深さ優先探索）テンプレートの作成
+      // DFS（深さ優先探索）テンプレートの作成（十分なマージンで配置）
+      const SECTION_MARGIN = 200; // セクション間のマージン（大幅増加）
+      const NODE_MARGIN = 120; // セクション内ノード間のマージン（大幅増加）
+      const SECTION_TO_NODE_MARGIN = 150; // セクションと外部ノード間のマージン（大幅増加）
+
       const startNode = createLogicNode({
         kind: 'start',
         label: 'Start',
-        position: { x: flowCenter.x - 400, y: flowCenter.y },
+        position: { x: flowCenter.x, y: flowCenter.y - 600 },
       });
 
-      // DFS関数セクション
-      const dfsFunctionX = flowCenter.x - 280;
-      const dfsFunctionY = flowCenter.y - 100;
+      // 関数呼び出しノード
+      const functionCallNode = createLogicNode({
+        kind: 'normal',
+        label: 'DFS関数呼び出し',
+        position: { x: flowCenter.x, y: flowCenter.y - 500 },
+      });
+
+      // DFS関数内のノード定義（完全なアルゴリズム + return文）
+      const dfsFunctionNodes = [
+        { position: { x: 250, y: 40 }, label: 'visited = new Set()' },
+        { position: { x: 250, y: 40 + NODE_MARGIN }, label: 'result = []' },
+        { position: { x: 250, y: 40 + NODE_MARGIN * 2 }, label: 'stack = [startNode]' },
+        { position: { x: 250, y: 40 + NODE_MARGIN * 8 }, label: 'return result' },
+      ];
+
+      // DFS関数セクションのサイズを動的計算
+      const dfsFunctionSize = calculateSectionSize(dfsFunctionNodes);
+
+      // DFS関数セクション（Startノードから十分な間隔で配置）
+      const dfsFunctionX = flowCenter.x - dfsFunctionSize.width / 2;
+      const dfsFunctionY = flowCenter.y - 400;
       const dfsFunction = createSectionNode({
         sectionType: 'function',
-        label: 'dfs(graph, startNode)',
+        label: 'dfs(graph: Graph, startNode: Node) -> Array<Node>',
         position: { x: dfsFunctionX, y: dfsFunctionY },
+        style: dfsFunctionSize,
       });
 
-      // DFS関数内のノード（セクション内相対位置）
-      const initStackNode = createLogicNode({
+      // DFS関数内のノード（完全な初期化）
+      const initVisitedNode = createLogicNode({
         kind: 'normal',
-        label: 'スタック初期化',
-        position: { x: 30, y: 40 },
+        label: 'visited = new Set()',
+        position: { x: 250, y: 40 },
         instanceOfSectionId: dfsFunction.id,
       });
-      // parentNodeとextentを設定してセクション内配置
+      initVisitedNode.parentNode = dfsFunction.id;
+      initVisitedNode.extent = 'parent';
+
+      const initResultNode = createLogicNode({
+        kind: 'normal',
+        label: 'result = []',
+        position: { x: 250, y: 40 + NODE_MARGIN },
+        instanceOfSectionId: dfsFunction.id,
+      });
+      initResultNode.parentNode = dfsFunction.id;
+      initResultNode.extent = 'parent';
+
+      const initStackNode = createLogicNode({
+        kind: 'normal',
+        label: 'stack = [startNode]',
+        position: { x: 250, y: 40 + NODE_MARGIN * 2 },
+        instanceOfSectionId: dfsFunction.id,
+      });
       initStackNode.parentNode = dfsFunction.id;
       initStackNode.extent = 'parent';
 
-      const addStartToStackNode = createLogicNode({
-        kind: 'normal',
-        label: '開始ノード追加',
-        position: { x: 30, y: 80 },
-        instanceOfSectionId: dfsFunction.id,
-      });
-      // parentNodeとextentを設定してセクション内配置
-      addStartToStackNode.parentNode = dfsFunction.id;
-      addStartToStackNode.extent = 'parent';
+      // While文内のノード定義（完全なDFSステップ）
+      const whileSectionNodes = [
+        { position: { x: 250, y: 40 }, label: 'current = stack.pop()' },
+        { position: { x: 250, y: 40 + NODE_MARGIN }, label: 'if (!visited.has(current))' },
+        { position: { x: 250, y: 40 + NODE_MARGIN * 2 }, label: 'visited.add(current)' },
+        { position: { x: 250, y: 40 + NODE_MARGIN * 3 }, label: 'result.push(current)' },
+        { position: { x: 250, y: 40 + NODE_MARGIN * 4 }, label: 'neighbors = graph[current]' },
+        { position: { x: 250, y: 40 + NODE_MARGIN * 5 }, label: 'for neighbor in neighbors' },
+        { position: { x: 250, y: 40 + NODE_MARGIN * 6 }, label: 'if (!visited.has(neighbor))' },
+        { position: { x: 250, y: 40 + NODE_MARGIN * 7 }, label: 'stack.push(neighbor)' },
+      ];
 
-      // While文セクション
-      const whileSectionX = flowCenter.x - 50;
-      const whileSectionY = flowCenter.y - 100;
+      // While文セクションのサイズを動的計算
+      const whileSectionSize = calculateSectionSize(whileSectionNodes);
+
+      // While文セクション（DFS関数から適切な間隔で配置）
+      const whileSectionX = flowCenter.x - whileSectionSize.width / 2;
+      const whileSectionY = dfsFunctionY + dfsFunctionSize.height + SECTION_MARGIN;
       const whileSection = createSectionNode({
         sectionType: 'while',
-        label: 'スタックが空でない間',
+        label: 'while (stack.length > 0)',
         position: { x: whileSectionX, y: whileSectionY },
-        loopCondition: '!stack.isEmpty()',
+        loopCondition: 'stack.length > 0',
+        style: whileSectionSize,
       });
 
-      // While文内のノード（セクション内相対位置）
+      // While文内のノード（完全なDFSアルゴリズム）
       const popNode = createLogicNode({
         kind: 'normal',
         label: 'current = stack.pop()',
-        position: { x: 30, y: 40 },
+        position: { x: 250, y: 40 },
         instanceOfSectionId: whileSection.id,
       });
       popNode.parentNode = whileSection.id;
@@ -1513,8 +1618,8 @@ export default function FlowVisualization() {
 
       const visitedCheckIf = createLogicNode({
         kind: 'normal',
-        label: 'if (!visited[current])',
-        position: { x: 30, y: 80 },
+        label: 'if (!visited.has(current))',
+        position: { x: 250, y: 40 + NODE_MARGIN },
         instanceOfSectionId: whileSection.id,
       });
       visitedCheckIf.parentNode = whileSection.id;
@@ -1522,174 +1627,269 @@ export default function FlowVisualization() {
 
       const markVisitedNode = createLogicNode({
         kind: 'normal',
-        label: 'visited[current] = true',
-        position: { x: 200, y: 80 },
+        label: 'visited.add(current)',
+        position: { x: 250, y: 40 + NODE_MARGIN * 2 },
         instanceOfSectionId: whileSection.id,
       });
       markVisitedNode.parentNode = whileSection.id;
       markVisitedNode.extent = 'parent';
 
-      const processNode = createLogicNode({
+      const addToResultNode = createLogicNode({
         kind: 'normal',
-        label: 'process(current)',
-        position: { x: 30, y: 120 },
+        label: 'result.push(current)',
+        position: { x: 250, y: 40 + NODE_MARGIN * 3 },
         instanceOfSectionId: whileSection.id,
       });
-      processNode.parentNode = whileSection.id;
-      processNode.extent = 'parent';
+      addToResultNode.parentNode = whileSection.id;
+      addToResultNode.extent = 'parent';
 
-      const addNeighborsNode = createLogicNode({
+      const getNeighborsNode = createLogicNode({
         kind: 'normal',
-        label: 'stack.push(neighbors)',
-        position: { x: 200, y: 120 },
+        label: 'neighbors = graph[current]',
+        position: { x: 250, y: 40 + NODE_MARGIN * 4 },
         instanceOfSectionId: whileSection.id,
       });
-      addNeighborsNode.parentNode = whileSection.id;
-      addNeighborsNode.extent = 'parent';
+      getNeighborsNode.parentNode = whileSection.id;
+      getNeighborsNode.extent = 'parent';
+
+      const forLoopNode = createLogicNode({
+        kind: 'normal',
+        label: 'for neighbor in neighbors',
+        position: { x: 250, y: 40 + NODE_MARGIN * 5 },
+        instanceOfSectionId: whileSection.id,
+      });
+      forLoopNode.parentNode = whileSection.id;
+      forLoopNode.extent = 'parent';
+
+      const neighborCheckNode = createLogicNode({
+        kind: 'normal',
+        label: 'if (!visited.has(neighbor))',
+        position: { x: 250, y: 40 + NODE_MARGIN * 6 },
+        instanceOfSectionId: whileSection.id,
+      });
+      neighborCheckNode.parentNode = whileSection.id;
+      neighborCheckNode.extent = 'parent';
+
+      const pushNeighborNode = createLogicNode({
+        kind: 'normal',
+        label: 'stack.push(neighbor)',
+        position: { x: 250, y: 40 + NODE_MARGIN * 7 },
+        instanceOfSectionId: whileSection.id,
+      });
+      pushNeighborNode.parentNode = whileSection.id;
+      pushNeighborNode.extent = 'parent';
+
+      // 関数の戻り値（関数内）
+      const returnNode = createLogicNode({
+        kind: 'normal',
+        label: 'return result',
+        position: { x: 250, y: 40 + NODE_MARGIN * 8 },
+        instanceOfSectionId: dfsFunction.id,
+      });
+      returnNode.parentNode = dfsFunction.id;
+      returnNode.extent = 'parent';
+
+      // 関数呼び出し後の戻り値受け取り
+      const resultReceiveNode = createLogicNode({
+        kind: 'normal',
+        label: 'result = DFS結果受け取り',
+        position: { x: flowCenter.x, y: whileSectionY + whileSectionSize.height + SECTION_TO_NODE_MARGIN },
+      });
 
       const endNode = createLogicNode({
         kind: 'end',
         label: 'End',
-        position: { x: flowCenter.x + 400, y: flowCenter.y },
+        position: { x: flowCenter.x, y: whileSectionY + whileSectionSize.height + SECTION_TO_NODE_MARGIN + 100 },
       });
 
       const newNodes = [
-        startNode, dfsFunction, initStackNode, addStartToStackNode,
-        whileSection, popNode, visitedCheckIf, markVisitedNode,
-        processNode, addNeighborsNode, endNode
+        startNode, functionCallNode, dfsFunction, initVisitedNode, initResultNode, initStackNode,
+        whileSection, popNode, visitedCheckIf, markVisitedNode, addToResultNode,
+        getNeighborsNode, forLoopNode, neighborCheckNode, pushNeighborNode,
+        returnNode, resultReceiveNode, endNode
       ];
 
-      // エッジを正しい形式で作成（下から上の接続）
+      // エッジを正しい形式で作成（完全なDFSフロー）
       const flowStyle = CONTROL_STYLE.flow;
       const ifStyle = CONTROL_STYLE.if;
       const newEdges: Edge<LogicEdgeData>[] = [
-        // Start → DFS関数
+        // Start → 関数呼び出しノード
         {
           id: `edge-${nextEdgeSeq.current++}`,
           type: 'logicEdge',
           source: startNode.id,
-          target: dfsFunction.id,
-          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          target: functionCallNode.id,
+          sourceHandle: 'h-bottom',
+          targetHandle: 'h-top',
+          data: { controlType: 'flow', condition: '', note: 'graph, startNodeを準備', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
-        // DFS関数への入口 → 初期化
+        // 関数呼び出しノード → DFS関数
         {
           id: `edge-${nextEdgeSeq.current++}`,
           type: 'logicEdge',
-          source: dfsFunction.id,
-          target: initStackNode.id,
-          sourceHandle: 'bottom',
-          targetHandle: 'top',
+          source: functionCallNode.id,
+          target: dfsFunction.id,
+          sourceHandle: 'h-bottom',
+          targetHandle: 'section-h-top',
+          data: { controlType: 'flow', condition: '', note: '引数: graph, startNode', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // DFS関数内：visited初期化 → result初期化
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: initVisitedNode.id,
+          target: initResultNode.id,
+          sourceHandle: 'h-bottom',
+          targetHandle: 'h-top',
           data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
-        // DFS関数内：初期化 → 開始ノード追加
+        // result初期化 → stack初期化
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: initResultNode.id,
+          target: initStackNode.id,
+          sourceHandle: 'h-bottom',
+          targetHandle: 'h-top',
+          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // stack初期化 → While文セクション
         {
           id: `edge-${nextEdgeSeq.current++}`,
           type: 'logicEdge',
           source: initStackNode.id,
-          target: addStartToStackNode.id,
-          sourceHandle: 'bottom',
-          targetHandle: 'top',
-          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
-          style: flowStyle,
-          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
-        },
-        // DFS関数から → While文セクションへ
-        {
-          id: `edge-${nextEdgeSeq.current++}`,
-          type: 'logicEdge',
-          source: addStartToStackNode.id,
           target: whileSection.id,
-          sourceHandle: 'bottom',
-          targetHandle: 'top',
+          sourceHandle: 'h-bottom',
+          targetHandle: 'section-h-top',
           data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
-        // While文への入口 → ポップ
-        {
-          id: `edge-${nextEdgeSeq.current++}`,
-          type: 'logicEdge',
-          source: whileSection.id,
-          target: popNode.id,
-          sourceHandle: 'bottom',
-          targetHandle: 'top',
-          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
-          style: flowStyle,
-          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
-        },
-        // While文内：ポップ → if判定
+        // While文内：完全なDFSフロー
         {
           id: `edge-${nextEdgeSeq.current++}`,
           type: 'logicEdge',
           source: popNode.id,
           target: visitedCheckIf.id,
-          sourceHandle: 'bottom',
-          targetHandle: 'top',
+          sourceHandle: 'h-bottom',
+          targetHandle: 'h-top',
           data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
-        // if判定 → 訪問済み設定（true分岐）
+        // visited判定 → 訪問済み設定
         {
           id: `edge-${nextEdgeSeq.current++}`,
           type: 'logicEdge',
           source: visitedCheckIf.id,
           target: markVisitedNode.id,
-          sourceHandle: 'right',
-          targetHandle: 'left',
-          data: { controlType: 'if', condition: 'true', note: '', validations: [], parallelOffset: 0 },
-          style: ifStyle,
-          markerEnd: { type: MarkerType.ArrowClosed, color: ifStyle.color },
+          sourceHandle: 'h-bottom',
+          targetHandle: 'h-top',
+          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
-        // 訪問済み設定 → ノード処理
+        // 訪問済み設定 → 結果に追加
         {
           id: `edge-${nextEdgeSeq.current++}`,
           type: 'logicEdge',
           source: markVisitedNode.id,
-          target: processNode.id,
-          sourceHandle: 'bottom',
-          targetHandle: 'top',
+          target: addToResultNode.id,
+          sourceHandle: 'h-bottom',
+          targetHandle: 'h-top',
           data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
-        // ノード処理 → 隣接ノード追加
+        // 結果追加 → 隣接ノード取得
         {
           id: `edge-${nextEdgeSeq.current++}`,
           type: 'logicEdge',
-          source: processNode.id,
-          target: addNeighborsNode.id,
-          sourceHandle: 'right',
-          targetHandle: 'left',
+          source: addToResultNode.id,
+          target: getNeighborsNode.id,
+          sourceHandle: 'h-bottom',
+          targetHandle: 'h-top',
           data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
-        // While文ループバック（隣接ノード追加からwhile開始へ）
+        // 隣接ノード取得 → forループ
         {
           id: `edge-${nextEdgeSeq.current++}`,
           type: 'logicEdge',
-          source: addNeighborsNode.id,
-          target: whileSection.id,
-          sourceHandle: 'top',
-          targetHandle: 'bottom',
-          data: { controlType: 'flow', condition: 'ループ継続', note: '', validations: [], parallelOffset: 0 },
+          source: getNeighborsNode.id,
+          target: forLoopNode.id,
+          sourceHandle: 'h-bottom',
+          targetHandle: 'h-top',
+          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
-        // While文終了 → End（条件が偽のとき）
+        // forループ → 隣接ノード未訪問チェック
         {
           id: `edge-${nextEdgeSeq.current++}`,
           type: 'logicEdge',
-          source: whileSection.id,
+          source: forLoopNode.id,
+          target: neighborCheckNode.id,
+          sourceHandle: 'h-bottom',
+          targetHandle: 'h-top',
+          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // 隣接ノード未訪問チェック → スタックにプッシュ
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: neighborCheckNode.id,
+          target: pushNeighborNode.id,
+          sourceHandle: 'h-bottom',
+          targetHandle: 'h-top',
+          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // While文終了後、関数内でreturn文実行（セクション内で完結）
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: initStackNode.id,
+          target: returnNode.id,
+          sourceHandle: 'h-right',
+          targetHandle: 'h-left',
+          data: { controlType: 'flow', condition: 'ループ完了後', note: 'While終了→return', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // DFS関数 → 結果受け取りノード（戻り値）
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: dfsFunction.id,
+          target: resultReceiveNode.id,
+          sourceHandle: 'section-h-bottom',
+          targetHandle: 'h-top',
+          data: { controlType: 'flow', condition: '', note: '戻り値: result配列', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // 戻り値受け取り → End
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: resultReceiveNode.id,
           target: endNode.id,
-          sourceHandle: 'bottom',
-          targetHandle: 'top',
-          data: { controlType: 'flow', condition: 'スタック空', note: '', validations: [], parallelOffset: 0 },
+          sourceHandle: 'h-bottom',
+          targetHandle: 'h-top',
+          data: { controlType: 'flow', condition: '', note: 'DFS処理完了', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
@@ -1700,7 +1900,7 @@ export default function FlowVisualization() {
     }
 
     setIsTemplateModalOpen(false);
-  }, [createLogicNode, createSectionNode, setNodes, setEdges]);
+  }, [createLogicNode, createSectionNode, setNodes, setEdges, calculateSectionSize]);
 
   const cancelMemoModal = useCallback(() => {
     setPendingMemoClientPosition(null);
@@ -1920,6 +2120,7 @@ export default function FlowVisualization() {
         label: normalizeText(nodeForm.label) ?? '',
         position: flowPosition,
         note: allowNote ? normalizeText(nodeForm.note) : undefined,
+        entryNodeId: normalizeText(nodeForm.entryNodeId),
         functionArgs: isFunction ? nodeForm.functionArgs.map((arg) => ({ ...arg })) : undefined,
         functionReturnType: isFunction ? normalizeText(nodeForm.functionReturnType) : undefined,
         functionReturnValue: isFunction ? normalizeText(nodeForm.functionReturnValue) : undefined,
@@ -2059,6 +2260,7 @@ export default function FlowVisualization() {
                 sectionType,
                 seq: targetSeq,
                 note: allowNote ? normalizeText(nodeForm.note) : undefined,
+                entryNodeId: normalizeText(nodeForm.entryNodeId),
                 functionArgs: isFunction
                   ? nodeForm.functionArgs.map((arg) => ({ ...arg }))
                   : undefined,
@@ -2219,6 +2421,18 @@ export default function FlowVisualization() {
         return currentNodes
           .filter((node) => !removedIds.has(node.id))
           .map((node) => {
+            if (node.type === 'sectionNode') {
+              const sectionData = node.data as SectionNodeData;
+              if (sectionData.entryNodeId === nodeId) {
+                return {
+                  ...node,
+                  data: {
+                    ...sectionData,
+                    entryNodeId: undefined,
+                  },
+                };
+              }
+            }
             if (!removedIsSection || node.parentNode !== nodeId) return node;
             const absolutePos = node.positionAbsolute ?? node.position;
             return {
@@ -2949,6 +3163,43 @@ export default function FlowVisualization() {
                         }
                       />
                     </div>
+                    {isEdit && editingNode && editingNode.type === 'sectionNode' ? (
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700">最初のノード</label>
+                        {nodes.filter(
+                          (node) =>
+                            node.type === 'logicNode' && node.parentNode === editingNode.id
+                        ).length === 0 ? (
+                          <div className="mt-2 text-xs text-gray-500">
+                            セクション内にノードがありません。
+                          </div>
+                        ) : (
+                          <select
+                            value={nodeForm.entryNodeId}
+                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                            onChange={(event) =>
+                              setNodeForm((current) => ({
+                                ...current,
+                                entryNodeId: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">未設定</option>
+                            {nodes
+                              .filter(
+                                (node) =>
+                                  node.type === 'logicNode' &&
+                                  node.parentNode === editingNode.id
+                              )
+                              .map((node) => (
+                                <option key={node.id} value={node.id}>
+                                  {getNodeDisplayLabel(node)}
+                                </option>
+                              ))}
+                          </select>
+                        )}
+                      </div>
+                    ) : null}
                     {isFunctionSection ? (
                       <>
                         <div>
@@ -4233,6 +4484,7 @@ export default function FlowVisualization() {
     nodeForm.label,
     nodeForm.loopCondition,
     nodeForm.note,
+    nodeForm.entryNodeId,
     nodeForm.validations,
     nodeModalOption,
     nodes,
