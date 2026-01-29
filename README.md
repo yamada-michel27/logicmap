@@ -1,183 +1,99 @@
 # LogicMap
 
-Markdownで記述したアルゴリズムを解析し、ReactFlowで処理・思考のフロウを可視化する学習プラットフォーム。理解度の可視化や変数状態表示をサポート。Go API＋Docker構成で、AWS上へのデプロイと将来拡張を前提に設計。
+LogicMap is a product that helps teams see and align complex reasoning by turning ideas and algorithmic steps into a visual flow.
+
+## 背景 / Background
+
+昨今のAI活用の加速により、全体像を掴めないまま作業が進んでしまう場面が増えています。LogicMapは、思考や手順の流れを可視化し、理解のスピードを上げ、認識のギャップを減らすために生まれたプロダクトです。
+
+As AI usage accelerates, teams often move forward without a shared understanding of the full picture. LogicMap visualizes reasoning and process flows to speed up comprehension and reduce gaps in understanding.
 
 ## 概要 / Overview
 
-LogicMapは、Markdownで記述されたアルゴリズムをビジュアルフローチャートに変換するWebアプリケーションです。Next.js（TypeScript）とReactFlowを使用したフロントエンドと、Goで実装されたバックエンドAPIで構成されています。
+LogicMapは、思考やアルゴリズムの流れをノードとエッジで可視化するWebアプリケーションです。フロントエンドはNext.jsとReactFlow、バックエンドはGoで構成されています。
 
-LogicMap is a web application that transforms algorithms written in Markdown into visual flowcharts. It consists of a frontend built with Next.js (TypeScript) and ReactFlow, and a backend API implemented in Go.
+LogicMap is a web application that visualizes reasoning and algorithm flows using nodes and edges. The frontend is built with Next.js and ReactFlow, and the backend is implemented in Go.
+
+## 主な機能 / Key Features
+
+- 思考や手順をフローチャートとして可視化 / Visualize reasoning and steps as flowcharts
+- ノード・エッジ操作で構造を整理 / Structure ideas via node and edge operations
+- フロントエンドとAPIの分離設計 / Clear separation of frontend and API layers
 
 ## 技術スタック / Tech Stack
 
-- **Frontend**: Next.js 15 (TypeScript), ReactFlow, Tailwind CSS
-- **Backend**: Go 1.21+
-- **Container**: Docker, Docker Compose
-- **Deployment**: AWS対応のディレクトリ構成
+- Frontend: Next.js (TypeScript), ReactFlow, Tailwind CSS
+- Backend: Go
+- Container: Docker, Docker Compose
+- Infrastructure: AWS, Terraform
 
-## ディレクトリ構成 / Directory Structure
+## アーキテクチャ / Architecture
 
-```
-logicmap/
-├── backend/              # Go API server
-│   ├── main.go          # メインAPIコード / Main API code
-│   ├── go.mod           # Go module definition
-│   ├── Dockerfile       # Backend container
-│   └── .dockerignore
-├── frontend/            # Next.js application
-│   ├── app/            # Next.js App Router
-│   ├── components/     # Reactコンポーネント / React components
-│   ├── public/         # 静的ファイル / Static files
-│   ├── Dockerfile      # Frontend container
-│   ├── .dockerignore
-│   └── package.json
-├── docker-compose.yml   # コンテナオーケストレーション / Container orchestration
-└── README.md
-```
+- フロントエンドはNext.jsで提供
+- バックエンドはGo APIとして提供
+- Dockerでローカル開発可能
+- AWS上で本番稼働中
 
-## 機能 / Features
+## 必要ファイル / Required Files
 
-### 現在の実装
-- ✅ Markdown入力インターフェース
-- ✅ ReactFlowによる視覚化
-- ✅ Go APIでのMarkdown解析（モックレスポンス）
-- ✅ Docker/Docker Compose対応
-- ✅ AWS対応ディレクトリ構造
+`docker-compose.yml` は以下の環境変数を参照します。リポジトリ直下に `.env` を作成して設定してください。
 
-### 将来の拡張計画
-- [ ] 実際のMarkdown解析ロジック
-- [ ] 変数状態の可視化
-- [ ] 理解度トラッキング
-- [ ] ユーザー認証
+`docker-compose.yml` references the following environment variables. Create a `.env` file at the repository root.
 
-## セットアップ / Setup
-
-### 前提条件 / Prerequisites
-
-- Docker Desktop または Docker Engine + Docker Compose
-- (ローカル開発の場合) Node.js 20+, Go 1.21+
-
-### Dockerを使用した起動 / Running with Docker
-
-```bash
-# リポジトリをクローン / Clone the repository
-git clone https://github.com/yamada-michel27/logicmap.git
-cd logicmap
-
-# Docker Composeで起動 / Start with Docker Compose
-docker-compose up --build
-
-# バックグラウンドで起動する場合 / To run in background
-docker-compose up -d --build
+```env
+BACKEND_PORT=8080
+FRONTEND_PORT=3000
+NEXT_PUBLIC_API_URL=http://localhost:8080
+API_BASE_URL=http://backend:8080
+NODE_ENV=development
 ```
 
-アプリケーションは以下のURLでアクセス可能です:
-- **Frontend**: http://localhost:3000
-- **Backend API**: http://localhost:8080
-
-### ローカル開発 / Local Development
-
-#### Backend (Go API)
-
-```bash
-cd backend
-go run main.go
-```
-
-#### Frontend (Next.js)
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
+- Frontend: http://localhost:3000
+- Backend: http://localhost:8080
 
 ## API仕様 / API Specification
 
-### POST /parse
+バックエンド/フロントエンドAPIの仕様は後日対応します。
 
-Markdownテキストを受け取り、ReactFlow用のノードとエッジを返します。
+Backend/Frontend API specifications will be added later.
 
-**Request:**
-```json
-{
-  "markdown": "# Algorithm\n1. Start\n2. Process\n3. End"
-}
-```
+## AWSデプロイ / AWS Deployment
 
-**Response:**
-```json
-{
-  "nodes": [
-    {
-      "id": "1",
-      "type": "input",
-      "data": { "label": "Start" },
-      "position": { "x": 250, "y": 0 }
-    }
-  ],
-  "edges": [
-    {
-      "id": "e1-2",
-      "source": "1",
-      "target": "2"
-    }
-  ]
-}
-```
+本番環境はAWS上で稼働しています。インフラはTerraformで管理されています。
 
-### GET /health
+Production runs on AWS. Infrastructure is managed with Terraform.
 
-ヘルスチェックエンドポイント
+### Terraformで管理している主なリソース / Terraform-managed Resources
 
-**Response:**
-```json
-{
-  "status": "ok"
-}
-```
+- VPC, パブリック/プライベートサブネット / VPC, public/private subnets
+- ALB (HTTP/HTTPS) / ALB (HTTP/HTTPS)
+- ECS (Fargate) クラスターとサービス / ECS (Fargate) cluster and services
+- ECR (backend/frontend) / ECR (backend/frontend)
+- RDS (エンジンはTerraform変数で指定) / RDS (engine is defined by Terraform variables)
+- Route53 レコード / Route53 records
+- WAF (ALB保護) / WAF (ALB protection)
+- WAFログ用 S3 + Kinesis Firehose / S3 + Kinesis Firehose for WAF logs
+- Secrets Manager / Secrets Manager
 
-## AWS デプロイ / AWS Deployment
+Terraform定義は `infra/terraform` にあります。
 
-このプロジェクトはAWSへのデプロイを想定した構成になっています:
+Terraform definitions are under `infra/terraform`.
 
-- **Frontend**: AWS Amplify, S3 + CloudFront, または ECS
-- **Backend**: ECS (Elastic Container Service), Lambda, または App Runner
-- **Networking**: VPC, ALB (Application Load Balancer)
+## GitHub Actions / CI & Deployment
 
-### デプロイ例 / Deployment Example
+GitHub Actionsで手動デプロイを実行できます。
 
-```bash
-# ECRにイメージをプッシュ / Push images to ECR
-aws ecr get-login-password --region ap-northeast-1 | docker login --username AWS --password-stdin <account-id>.dkr.ecr.ap-northeast-1.amazonaws.com
+Manual deployments are available via GitHub Actions.
 
-docker tag logicmap-backend:latest <account-id>.dkr.ecr.ap-northeast-1.amazonaws.com/logicmap-backend:latest
-docker push <account-id>.dkr.ecr.ap-northeast-1.amazonaws.com/logicmap-backend:latest
-
-docker tag logicmap-frontend:latest <account-id>.dkr.ecr.ap-northeast-1.amazonaws.com/logicmap-frontend:latest
-docker push <account-id>.dkr.ecr.ap-northeast-1.amazonaws.com/logicmap-frontend:latest
-```
-
-## 開発 / Development
-
-### フロントエンドの開発
-
-```bash
-cd frontend
-npm run dev     # 開発サーバー起動
-npm run build   # プロダクションビルド
-npm run lint    # リント実行
-```
-
-### バックエンドの開発
-
-```bash
-cd backend
-go run main.go        # 開発サーバー起動
-go build -o api       # ビルド
-go test ./...         # テスト実行
-```
+- `deploy-backend.yml`: ECRにイメージをpushし、ECSタスク定義を更新してデプロイ
+- `deploy-frontend.yml`: ECRにイメージをpushし、ECSタスク定義を更新してデプロイ（`backend_url` を引数で指定）
 
 ## ライセンス / License
 
-MIT
+All Rights Reserved.
+
+公式に提供されるサービス（https://app.m27.jp/）の利用は許可します。  
+Use of the official service (https://app.m27.jp/) is permitted.
+
+無断のローカル実行・複製・改変・配布・公開・販売・自前でのサービス提供は禁止です。  
+Unauthorized local execution, copying, modification, distribution, publication, sale, or self-hosted service offering is prohibited.
