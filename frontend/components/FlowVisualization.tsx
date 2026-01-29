@@ -2,6 +2,7 @@
 
 import {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -37,24 +38,12 @@ import 'reactflow/dist/style.css';
 import '@reactflow/node-resizer/dist/style.css';
 
 type NodeKind = 'start' | 'end' | 'normal';
-type SectionType = 'function' | 'class' | 'interface' | 'main';
+type SectionType = 'function' | 'class' | 'interface' | 'main' | 'try' | 'catch' | 'while' | 'for';
 
-const EDGE_CONTROL_TYPES = [
-  'flow',
-  'while',
-  'for',
-  'if',
-  'elif',
-  'else',
-  'break',
-  'continue',
-  'try',
-  'catch',
-  'function',
-  'class',
-] as const;
+const EDGE_CONTROL_OPTIONS = ['flow', 'if', 'elif', 'else', 'break', 'continue'] as const;
 
-type ControlType = (typeof EDGE_CONTROL_TYPES)[number];
+type EdgeControlType = (typeof EDGE_CONTROL_OPTIONS)[number];
+type NodeControlType = EdgeControlType | 'function' | 'class';
 
 type TypedField = {
   name: string;
@@ -78,7 +67,7 @@ type LogicNodeData = {
   label?: string;
   nodeKind: NodeKind;
   seq: number;
-  controlType?: ControlType;
+  controlType?: NodeControlType;
   condition?: string;
   note?: string;
   instanceOfSectionId?: string;
@@ -88,10 +77,13 @@ type SectionNodeData = {
   label: string;
   sectionType: SectionType;
   seq: number;
-  controlType?: ControlType;
+  controlType?: NodeControlType;
   note?: string;
   functionArgs?: TypedField[];
   functionReturnType?: string;
+  functionReturnValue?: string;
+  loopCondition?: string;
+  catchException?: string;
   classConstructorArgs?: TypedField[];
   classMembers?: TypedField[];
   classMethods?: ClassMethod[];
@@ -103,10 +95,11 @@ type SectionNodeData = {
 type FlowNodeData = LogicNodeData | SectionNodeData;
 
 type LogicEdgeData = {
-  controlType: ControlType;
+  controlType: EdgeControlType;
   condition?: string;
   note?: string;
   validations?: ValidationRule[];
+  parallelOffset?: number;
 };
 
 type NodeRect = {
@@ -128,7 +121,7 @@ function toRgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-type StyleKey = ControlType | SectionType;
+type StyleKey = EdgeControlType | SectionType;
 
 const CONTROL_STYLE: Record<
   StyleKey,
@@ -155,9 +148,10 @@ const SECTION_MIN_HEIGHT = 160;
 const SECTION_DEFAULT_WIDTH = 320;
 const SECTION_DEFAULT_HEIGHT = 220;
 const EDGE_STROKE_WIDTH = 3;
+const EDGE_PARALLEL_OFFSET = 24;
 const INSTANCE_OFFSET_X = 220;
 const INSTANCE_OFFSET_Y = 80;
-const DEFAULT_EDGE_CONTROL: ControlType = 'flow';
+const DEFAULT_EDGE_CONTROL: EdgeControlType = 'flow';
 
 type NodeFormState = {
   label: string;
@@ -165,6 +159,10 @@ type NodeFormState = {
   note: string;
   functionArgs: TypedField[];
   functionReturnType: string;
+  functionReturnValue: string;
+  loopCondition: string;
+  catchExceptionType: string;
+  catchExceptionOther: string;
   classConstructorArgs: TypedField[];
   classMembers: TypedField[];
   classMethods: ClassMethod[];
@@ -176,8 +174,6 @@ type NodeFormState = {
 type EdgeFormState = {
   condition: string;
   note: string;
-  exceptionType: string;
-  exceptionOther: string;
   validations: ValidationRule[];
 };
 
@@ -187,6 +183,10 @@ const EMPTY_NODE_FORM: NodeFormState = {
   note: '',
   functionArgs: [],
   functionReturnType: '',
+  functionReturnValue: '',
+  loopCondition: '',
+  catchExceptionType: '',
+  catchExceptionOther: '',
   classConstructorArgs: [],
   classMembers: [],
   classMethods: [],
@@ -198,8 +198,6 @@ const EMPTY_NODE_FORM: NodeFormState = {
 const EMPTY_EDGE_FORM: EdgeFormState = {
   condition: '',
   note: '',
-  exceptionType: '',
-  exceptionOther: '',
   validations: [],
 };
 
@@ -218,6 +216,10 @@ const NODE_OPTIONS: NodeOption[] = [
   { label: CONTROL_STYLE.class.label, kind: 'section', sectionType: 'class' },
   { label: CONTROL_STYLE.interface.label, kind: 'section', sectionType: 'interface' },
   { label: CONTROL_STYLE.main.label, kind: 'section', sectionType: 'main' },
+  { label: CONTROL_STYLE.while.label, kind: 'section', sectionType: 'while' },
+  { label: CONTROL_STYLE.for.label, kind: 'section', sectionType: 'for' },
+  { label: CONTROL_STYLE.try.label, kind: 'section', sectionType: 'try' },
+  { label: CONTROL_STYLE.catch.label, kind: 'section', sectionType: 'catch' },
 ];
 
 function getNodeRect(node: Node<FlowNodeData>): NodeRect | null {
@@ -355,8 +357,8 @@ const CATCH_OPTIONS = [
   { value: 'other', label: 'その他' },
 ] as const;
 
-function parseCatchCondition(condition: string) {
-  const trimmed = condition.trim();
+function parseCatchValue(value: string) {
+  const trimmed = value.trim();
   if (trimmed.length === 0) {
     return { exceptionType: '', exceptionOther: '' };
   }
@@ -369,34 +371,25 @@ function parseCatchCondition(condition: string) {
   return { exceptionType: 'other', exceptionOther: trimmed };
 }
 
-function buildConditionForControl(controlType: ControlType, form: EdgeFormState) {
-  if (controlType === 'flow') return undefined;
-  if (controlType === 'catch') {
-    if (form.exceptionType === 'other') {
-      return normalizeText(form.exceptionOther);
-    }
-    return normalizeText(form.exceptionType);
+function buildCatchValue(form: NodeFormState) {
+  if (form.catchExceptionType === 'other') {
+    return normalizeText(form.catchExceptionOther);
   }
-  if (controlType === 'try') return undefined;
+  return normalizeText(form.catchExceptionType);
+}
+
+function buildConditionForControl(controlType: EdgeControlType, form: EdgeFormState) {
+  if (controlType === 'flow') return undefined;
   return normalizeText(form.condition);
 }
 
-function getConditionMeta(controlType: ControlType) {
-  if (controlType === 'flow' || controlType === 'try' || controlType === 'catch') return null;
+function getConditionMeta(controlType: EdgeControlType) {
+  if (controlType === 'flow') return null;
   if (controlType === 'break') {
     return { label: '理由', placeholder: '例: 条件を満たしたため' };
   }
   if (controlType === 'continue') {
     return { label: '理由', placeholder: '例: スキップ条件に該当' };
-  }
-  if (controlType === 'function' || controlType === 'class') {
-    return { label: '呼び出し条件', placeholder: '例: userIdがある場合' };
-  }
-  if (controlType === 'while') {
-    return { label: '条件式', placeholder: '例: i < 10' };
-  }
-  if (controlType === 'for') {
-    return { label: '条件式', placeholder: '例: for item in items' };
   }
   if (controlType === 'if') {
     return { label: '条件式', placeholder: '例: user.isAdmin' };
@@ -414,13 +407,13 @@ function getIfControlOptions(
   sourceId: string | null | undefined,
   edges: Edge<LogicEdgeData>[],
   currentEdgeId?: string | null,
-  currentEdgeControl?: ControlType | null
-): ControlType[] {
+  currentEdgeControl?: EdgeControlType | null
+): EdgeControlType[] {
   if (!sourceId) return ['if', 'elif', 'else'];
   const otherEdges = edges.filter((edge) => edge.source === sourceId && edge.id !== currentEdgeId);
   const hasIf = otherEdges.some((edge) => edge.data?.controlType === 'if');
   const hasElse = otherEdges.some((edge) => edge.data?.controlType === 'else');
-  let options: ControlType[] = [];
+  let options: EdgeControlType[] = [];
   if (!hasIf) {
     options = ['if'];
   } else if (hasElse) {
@@ -441,7 +434,7 @@ function getIfControlOptions(
 }
 
 function buildEdgeLabel(
-  controlType: ControlType,
+  controlType: EdgeControlType,
   condition?: string,
   note?: string,
   validations?: ValidationRule[]
@@ -477,8 +470,98 @@ function buildEdgeLabel(
   );
 }
 
+function ensureEdgeData(edge: Edge<LogicEdgeData>): LogicEdgeData {
+  const data = edge.data ?? { controlType: DEFAULT_EDGE_CONTROL };
+  return {
+    controlType: data.controlType ?? DEFAULT_EDGE_CONTROL,
+    condition: data.condition,
+    note: data.note,
+    validations: data.validations,
+    parallelOffset: data.parallelOffset ?? 0,
+  };
+}
+
+function normalizeParallelOffsets(edges: Edge<LogicEdgeData>[]) {
+  const pairs = new Map<
+    string,
+    { a: string; b: string; forward: boolean; reverse: boolean }
+  >();
+  edges.forEach((edge) => {
+    const source = edge.source;
+    const target = edge.target;
+    if (!source || !target) return;
+    const sourceKey = `${source}::${edge.sourceHandle ?? ''}`;
+    const targetKey = `${target}::${edge.targetHandle ?? ''}`;
+    const [a, b] = sourceKey < targetKey ? [sourceKey, targetKey] : [targetKey, sourceKey];
+    const key = `${a}||${b}`;
+    const entry = pairs.get(key) ?? { a, b, forward: false, reverse: false };
+    if (sourceKey === a && targetKey === b) {
+      entry.forward = true;
+    } else {
+      entry.reverse = true;
+    }
+    pairs.set(key, entry);
+  });
+  let changed = false;
+  const normalized = edges.map((edge) => {
+    const source = edge.source;
+    const target = edge.target;
+    if (!source || !target) return edge;
+    const sourceKey = `${source}::${edge.sourceHandle ?? ''}`;
+    const targetKey = `${target}::${edge.targetHandle ?? ''}`;
+    const [a, b] = sourceKey < targetKey ? [sourceKey, targetKey] : [targetKey, sourceKey];
+    const entry = pairs.get(`${a}||${b}`);
+    const hasBoth = Boolean(entry?.forward && entry?.reverse);
+    const desiredOffset =
+      hasBoth && entry ? (sourceKey === entry.a && targetKey === entry.b ? 1 : -1) : 0;
+    const data = edge.data;
+    const currentOffset = data?.parallelOffset ?? 0;
+    const hasControlType = Boolean(data?.controlType);
+    const resolvedData = ensureEdgeData(edge);
+    const desiredColor = CONTROL_STYLE[resolvedData.controlType].color;
+    const desiredDash = CONTROL_STYLE[resolvedData.controlType].edgeDash;
+    const needsStroke = edge.style?.stroke == null;
+    const needsWidth = edge.style?.strokeWidth == null;
+    const needsDash = edge.style?.strokeDasharray == null && desiredDash !== undefined;
+    const nextStyle =
+      needsStroke || needsWidth || needsDash
+        ? {
+            ...edge.style,
+            stroke: (edge.style?.stroke as string | undefined) ?? desiredColor,
+            strokeWidth:
+              (edge.style?.strokeWidth as number | undefined) ?? EDGE_STROKE_WIDTH,
+            strokeDasharray: edge.style?.strokeDasharray ?? desiredDash,
+          }
+        : edge.style;
+    const nextMarkerEnd =
+      edge.markerEnd ??
+      ({
+        type: MarkerType.ArrowClosed,
+        color: (nextStyle?.stroke as string | undefined) ?? desiredColor,
+      } as const);
+    const needsStyle = nextStyle !== edge.style;
+    const needsMarker = edge.markerEnd == null;
+    const needsType = edge.type !== 'logicEdge';
+    const needsData = currentOffset !== desiredOffset || !hasControlType;
+    if (!needsData && !needsStyle && !needsMarker && !needsType) {
+      return edge;
+    }
+    changed = true;
+    return {
+      ...edge,
+      type: 'logicEdge',
+      data: { ...resolvedData, parallelOffset: desiredOffset },
+      style: nextStyle,
+      markerEnd: nextMarkerEnd,
+    };
+  });
+  return changed ? normalized : edges;
+}
+
 function LogicEdge({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -490,11 +573,29 @@ function LogicEdge({
   markerEnd,
   markerStart,
 }: EdgeProps<LogicEdgeData>) {
+  const offsetSign = data?.parallelOffset ?? 0;
+  let adjustedSourceX = sourceX;
+  let adjustedSourceY = sourceY;
+  let adjustedTargetX = targetX;
+  let adjustedTargetY = targetY;
+  if (offsetSign !== 0) {
+    const useForward = typeof source === 'string' && typeof target === 'string' && source < target;
+    const baseDx = useForward ? targetX - sourceX : sourceX - targetX;
+    const baseDy = useForward ? targetY - sourceY : sourceY - targetY;
+    const length = Math.hypot(baseDx, baseDy) || 1;
+    const nx = -baseDy / length;
+    const ny = baseDx / length;
+    const offset = EDGE_PARALLEL_OFFSET * offsetSign;
+    adjustedSourceX = sourceX + nx * offset;
+    adjustedSourceY = sourceY + ny * offset;
+    adjustedTargetX = targetX + nx * offset;
+    adjustedTargetY = targetY + ny * offset;
+  }
   const [edgePath, labelX, labelY] = getBezierPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
+    sourceX: adjustedSourceX,
+    sourceY: adjustedSourceY,
+    targetX: adjustedTargetX,
+    targetY: adjustedTargetY,
     sourcePosition,
     targetPosition,
   });
@@ -532,12 +633,24 @@ function buildNodeFormFromNode(node: Node<FlowNodeData>): NodeFormState {
   const base = { ...EMPTY_NODE_FORM };
   if (node.type === 'sectionNode') {
     const data = node.data as SectionNodeData;
+    const isFunction = data.sectionType === 'function';
+    const isLoop = data.sectionType === 'while' || data.sectionType === 'for';
+    const isCatch = data.sectionType === 'catch';
+    const allowValidations =
+      data.sectionType === 'function' ||
+      data.sectionType === 'class' ||
+      data.sectionType === 'interface';
+    const catchForm = isCatch ? parseCatchValue(data.catchException ?? '') : null;
     return {
       ...base,
       label: data.label ?? '',
       note: data.note ?? '',
       functionArgs: data.functionArgs?.map((arg) => ({ ...arg })) ?? [],
       functionReturnType: data.functionReturnType ?? '',
+      functionReturnValue: data.functionReturnValue ?? '',
+      loopCondition: isLoop ? data.loopCondition ?? '' : '',
+      catchExceptionType: catchForm?.exceptionType ?? '',
+      catchExceptionOther: catchForm?.exceptionOther ?? '',
       classConstructorArgs: data.classConstructorArgs?.map((arg) => ({ ...arg })) ?? [],
       classMembers: data.classMembers?.map((arg) => ({ ...arg })) ?? [],
       classMethods:
@@ -551,7 +664,9 @@ function buildNodeFormFromNode(node: Node<FlowNodeData>): NodeFormState {
           ...method,
           args: method.args?.map((arg) => ({ ...arg })) ?? [],
         })) ?? [],
-      validations: data.validations?.map((rule) => ({ ...rule })) ?? [],
+      validations: allowValidations
+        ? data.validations?.map((rule) => ({ ...rule })) ?? []
+        : [],
     };
   }
   const data = node.data as LogicNodeData;
@@ -617,7 +732,11 @@ function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
     }
     const returns = data.functionReturnType?.trim() ?? '';
     if (returns.length > 0) {
-      details.push({ label: '返り値', value: returns });
+      details.push({ label: '返り値の型', value: returns });
+    }
+    const returnValue = data.functionReturnValue?.trim() ?? '';
+    if (returnValue.length > 0) {
+      details.push({ label: '返り値', value: returnValue });
     }
   }
   if (data.sectionType === 'class') {
@@ -678,11 +797,29 @@ function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
       });
     }
   }
-  const validationLines = formatValidationRules(data.validations);
-  if (validationLines.length > 0) {
-    details.push({ label: 'validation', value: validationLines.join('\n') });
+  if (data.sectionType === 'while' || data.sectionType === 'for') {
+    const loopCondition = data.loopCondition?.trim() ?? '';
+    if (loopCondition.length > 0) {
+      details.push({ label: '条件式', value: loopCondition });
+    }
   }
-  if (data.note && data.note.trim().length > 0) {
+  if (data.sectionType === 'catch') {
+    const exceptionValue = data.catchException?.trim() ?? '';
+    if (exceptionValue.length > 0) {
+      details.push({ label: '例外種別', value: exceptionValue });
+    }
+  }
+  if (
+    data.sectionType === 'function' ||
+    data.sectionType === 'class' ||
+    data.sectionType === 'interface'
+  ) {
+    const validationLines = formatValidationRules(data.validations);
+    if (validationLines.length > 0) {
+      details.push({ label: 'validation', value: validationLines.join('\n') });
+    }
+  }
+  if (data.sectionType !== 'main' && data.note && data.note.trim().length > 0) {
     details.push({ label: '補足', value: data.note });
   }
   return (
@@ -744,7 +881,7 @@ export default function FlowVisualization() {
   const [nodeModalOption, setNodeModalOption] = useState<NodeOption | null>(null);
   const [nodeForm, setNodeForm] = useState<NodeFormState>({ ...EMPTY_NODE_FORM });
   const [selectedEdgeControl, setSelectedEdgeControl] =
-    useState<ControlType>(DEFAULT_EDGE_CONTROL);
+    useState<EdgeControlType>(DEFAULT_EDGE_CONTROL);
   const [edgeForm, setEdgeForm] = useState<EdgeFormState>({ ...EMPTY_EDGE_FORM });
   const [debugEvent, setDebugEvent] = useState<{
     type: string;
@@ -759,12 +896,19 @@ export default function FlowVisualization() {
   const debugEventCount = useRef(0);
   const lastPaneClickAt = useRef<number | null>(null);
 
+  useEffect(() => {
+    const normalized = normalizeParallelOffsets(edges);
+    if (normalized !== edges) {
+      setEdges(normalized);
+    }
+  }, [edges, setEdges]);
+
   const createLogicNode = useCallback(
     (params: {
       kind: NodeKind;
       label: string;
       position: XYPosition;
-      controlType?: ControlType;
+      controlType?: NodeControlType;
       condition?: string;
       note?: string;
       instanceOfSectionId?: string;
@@ -796,6 +940,9 @@ export default function FlowVisualization() {
       note?: string;
       functionArgs?: TypedField[];
       functionReturnType?: string;
+      functionReturnValue?: string;
+      loopCondition?: string;
+      catchException?: string;
       classConstructorArgs?: TypedField[];
       classMembers?: TypedField[];
       classMethods?: ClassMethod[];
@@ -816,6 +963,9 @@ export default function FlowVisualization() {
           note: params.note,
           functionArgs: params.functionArgs,
           functionReturnType: params.functionReturnType,
+          functionReturnValue: params.functionReturnValue,
+          loopCondition: params.loopCondition,
+          catchException: params.catchException,
           classConstructorArgs: params.classConstructorArgs,
           classMembers: params.classMembers,
           classMethods: params.classMethods,
@@ -845,16 +995,18 @@ export default function FlowVisualization() {
       setPendingNodeEdit(null);
       setPendingEdgeEdit(null);
       setEdges((currentEdges) =>
-        currentEdges.map((edge) => {
-          if (edge.id !== oldEdge.id) return edge;
-          return {
-            ...edge,
-            source: newConnection.source ?? edge.source,
-            target: newConnection.target ?? edge.target,
-            sourceHandle: newConnection.sourceHandle ?? edge.sourceHandle,
-            targetHandle: newConnection.targetHandle ?? edge.targetHandle,
-          };
-        })
+        normalizeParallelOffsets(
+          currentEdges.map((edge) => {
+            if (edge.id !== oldEdge.id) return edge;
+            return {
+              ...edge,
+              source: newConnection.source ?? edge.source,
+              target: newConnection.target ?? edge.target,
+              sourceHandle: newConnection.sourceHandle ?? edge.sourceHandle,
+              targetHandle: newConnection.targetHandle ?? edge.targetHandle,
+            };
+          })
+        )
       );
     },
     [setEdges]
@@ -923,7 +1075,7 @@ export default function FlowVisualization() {
   );
 
   const applyControlType = useCallback(
-    (controlType: ControlType) => {
+    (controlType: EdgeControlType) => {
       if (!pendingConnection?.source || !pendingConnection.target) {
         setPendingConnection(null);
         return;
@@ -947,17 +1099,18 @@ export default function FlowVisualization() {
           strokeDasharray: style.edgeDash,
         },
         markerEnd: { type: MarkerType.ArrowClosed, color: style.color },
-        data: { controlType, condition, note, validations },
+        data: { controlType, condition, note, validations, parallelOffset: 0 },
       };
 
-      setEdges((eds) => addEdge(edge, eds));
+      setEdges((eds) => normalizeParallelOffsets(addEdge(edge, eds)));
       if (controlType !== 'flow') {
         setNodes((currentNodes) =>
           currentNodes.map((node) => {
             if (node.id === pendingConnection.source || node.id === pendingConnection.target) {
+              if (node.type !== 'logicNode') return node;
               return {
                 ...node,
-                data: { ...node.data, controlType },
+                data: { ...(node.data as LogicNodeData), controlType },
               };
             }
             return node;
@@ -968,8 +1121,6 @@ export default function FlowVisualization() {
     },
     [
       edgeForm.condition,
-      edgeForm.exceptionOther,
-      edgeForm.exceptionType,
       edgeForm.note,
       edgeForm.validations,
       pendingConnection,
@@ -995,13 +1146,21 @@ export default function FlowVisualization() {
       const isFunction = nodeModalOption.sectionType === 'function';
       const isClass = nodeModalOption.sectionType === 'class';
       const isInterface = nodeModalOption.sectionType === 'interface';
+      const isLoop =
+        nodeModalOption.sectionType === 'while' || nodeModalOption.sectionType === 'for';
+      const isCatch = nodeModalOption.sectionType === 'catch';
+      const allowNote = nodeModalOption.sectionType !== 'main';
+      const allowValidations = isFunction || isClass || isInterface;
       const newSection = createSectionNode({
         sectionType: nodeModalOption.sectionType,
         label: normalizeText(nodeForm.label) ?? '',
         position: flowPosition,
-        note: normalizeText(nodeForm.note),
+        note: allowNote ? normalizeText(nodeForm.note) : undefined,
         functionArgs: isFunction ? nodeForm.functionArgs.map((arg) => ({ ...arg })) : undefined,
         functionReturnType: isFunction ? normalizeText(nodeForm.functionReturnType) : undefined,
+        functionReturnValue: isFunction ? normalizeText(nodeForm.functionReturnValue) : undefined,
+        loopCondition: isLoop ? normalizeText(nodeForm.loopCondition) : undefined,
+        catchException: isCatch ? buildCatchValue(nodeForm) : undefined,
         classConstructorArgs: isClass
           ? nodeForm.classConstructorArgs.map((arg) => ({ ...arg }))
           : undefined,
@@ -1021,7 +1180,7 @@ export default function FlowVisualization() {
               args: method.args.map((arg) => ({ ...arg })),
             }))
           : undefined,
-        validations: nodeForm.validations.map((rule) => ({ ...rule })),
+        validations: allowValidations ? nodeForm.validations.map((rule) => ({ ...rule })) : [],
       });
       setNodes((currentNodes) => [newSection, ...currentNodes]);
       setPendingNodeClientPosition(null);
@@ -1120,6 +1279,10 @@ export default function FlowVisualization() {
             const isFunction = sectionType === 'function';
             const isClass = sectionType === 'class';
             const isInterface = sectionType === 'interface';
+            const isLoop = sectionType === 'while' || sectionType === 'for';
+            const isCatch = sectionType === 'catch';
+            const allowNote = sectionType !== 'main';
+            const allowValidations = isFunction || isClass || isInterface;
             return {
               ...node,
               type: 'sectionNode',
@@ -1131,13 +1294,18 @@ export default function FlowVisualization() {
                 label: normalizeText(nodeForm.label) ?? '',
                 sectionType,
                 seq: targetSeq,
-                note: normalizeText(nodeForm.note),
+                note: allowNote ? normalizeText(nodeForm.note) : undefined,
                 functionArgs: isFunction
                   ? nodeForm.functionArgs.map((arg) => ({ ...arg }))
                   : undefined,
                 functionReturnType: isFunction
                   ? normalizeText(nodeForm.functionReturnType)
                   : undefined,
+                functionReturnValue: isFunction
+                  ? normalizeText(nodeForm.functionReturnValue)
+                  : undefined,
+                loopCondition: isLoop ? normalizeText(nodeForm.loopCondition) : undefined,
+                catchException: isCatch ? buildCatchValue(nodeForm) : undefined,
                 classConstructorArgs: isClass
                   ? nodeForm.classConstructorArgs.map((arg) => ({ ...arg }))
                   : undefined,
@@ -1157,7 +1325,9 @@ export default function FlowVisualization() {
                       args: method.args.map((arg) => ({ ...arg })),
                     }))
                   : undefined,
-                validations: nodeForm.validations.map((rule) => ({ ...rule })),
+                validations: allowValidations
+                  ? nodeForm.validations.map((rule) => ({ ...rule }))
+                  : [],
               },
             };
           }
@@ -1321,21 +1491,21 @@ export default function FlowVisualization() {
       });
       setNodes((currentNodes) => [...currentNodes, instanceNode]);
 
-      const style = CONTROL_STYLE.class;
+      const style = CONTROL_STYLE.flow;
       const edgeId = `edge-${nextEdgeSeq.current++}`;
       const edge: Edge<LogicEdgeData> = {
         id: edgeId,
         type: 'logicEdge',
         source: instanceNode.id,
         target: classNode.id,
-        label: buildEdgeLabel('class', undefined, undefined, []),
+        label: buildEdgeLabel('flow', undefined, undefined, []),
         style: {
           stroke: style.color,
           strokeWidth: EDGE_STROKE_WIDTH,
           strokeDasharray: style.edgeDash,
         },
         markerEnd: { type: MarkerType.ArrowClosed, color: style.color },
-        data: { controlType: 'class', validations: [] },
+        data: { controlType: 'flow', validations: [] },
       };
       setEdges((currentEdges) => addEdge(edge, currentEdges));
     },
@@ -1361,15 +1531,9 @@ export default function FlowVisualization() {
       setPendingNodeEdit(null);
       setSelectedEdgeControl(edge.data?.controlType ?? DEFAULT_EDGE_CONTROL);
       const conditionValue = edge.data?.condition ?? '';
-      const catchForm =
-        edge.data?.controlType === 'catch'
-          ? parseCatchCondition(conditionValue)
-          : { exceptionType: '', exceptionOther: '' };
       setEdgeForm({
         condition: conditionValue,
         note: edge.data?.note ?? '',
-        exceptionType: catchForm.exceptionType,
-        exceptionOther: catchForm.exceptionOther,
         validations: edge.data?.validations?.map((rule) => ({ ...rule })) ?? [],
       });
       setPendingEdgeEdit({ id: edge.id });
@@ -1379,14 +1543,16 @@ export default function FlowVisualization() {
 
   const deleteEdgeById = useCallback(
     (edgeId: string) => {
-      setEdges((currentEdges) => currentEdges.filter((edge) => edge.id !== edgeId));
+      setEdges((currentEdges) =>
+        normalizeParallelOffsets(currentEdges.filter((edge) => edge.id !== edgeId))
+      );
       setPendingEdgeEdit(null);
     },
     [setEdges]
   );
 
   const updateEdgeControl = useCallback(
-    (edgeId: string, controlType: ControlType) => {
+    (edgeId: string, controlType: EdgeControlType) => {
       const style = CONTROL_STYLE[controlType];
       const condition = buildConditionForControl(controlType, edgeForm);
       const note = normalizeText(edgeForm.note);
@@ -1412,8 +1578,6 @@ export default function FlowVisualization() {
     },
     [
       edgeForm.condition,
-      edgeForm.exceptionOther,
-      edgeForm.exceptionType,
       edgeForm.note,
       edgeForm.validations,
       setEdges,
@@ -1421,7 +1585,7 @@ export default function FlowVisualization() {
   );
 
   const onEdgeControlChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
-    setSelectedEdgeControl(event.target.value as ControlType);
+    setSelectedEdgeControl(event.target.value as EdgeControlType);
   }, []);
 
   const closeEdgeModal = useCallback(() => {
@@ -1504,24 +1668,13 @@ export default function FlowVisualization() {
       editingEdge?.id ?? null,
       editingEdge?.data?.controlType ?? null
     );
-    const isNewConnection = Boolean(pendingConnection);
-    const sourceNode = isNewConnection ? nodes.find((node) => node.id === sourceId) : null;
-    const targetNode = isNewConnection ? nodes.find((node) => node.id === targetId) : null;
-    const hideFunctionClass =
-      isNewConnection &&
-      sourceNode?.type === 'logicNode' &&
-      targetNode?.type === 'logicNode';
-    const availableEdgeControls = EDGE_CONTROL_TYPES.filter((type) => {
+    const availableEdgeControls = EDGE_CONTROL_OPTIONS.filter((type) => {
       if (type === 'if' || type === 'elif' || type === 'else') {
         return ifOptions.includes(type);
-      }
-      if (hideFunctionClass && (type === 'function' || type === 'class')) {
-        return false;
       }
       return true;
     });
     const conditionMeta = getConditionMeta(selectedEdgeControl);
-    const isCatch = selectedEdgeControl === 'catch';
 
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
@@ -1549,47 +1702,6 @@ export default function FlowVisualization() {
             </select>
           </div>
           <div className="mt-4 grid gap-3">
-            {isCatch ? (
-              <>
-                <div>
-                  <label className="text-xs font-semibold text-gray-700">例外種別</label>
-                  <select
-                    value={edgeForm.exceptionType}
-                    className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
-                    onChange={(event) =>
-                      setEdgeForm((current) => ({
-                        ...current,
-                        exceptionType: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">選択してください</option>
-                    {CATCH_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {edgeForm.exceptionType === 'other' ? (
-                  <div>
-                    <label className="text-xs font-semibold text-gray-700">例外詳細</label>
-                    <input
-                      type="text"
-                      value={edgeForm.exceptionOther}
-                      className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
-                      onChange={(event) =>
-                        setEdgeForm((current) => ({
-                          ...current,
-                          exceptionOther: event.target.value,
-                        }))
-                      }
-                      placeholder="例: CustomNotFoundError"
-                    />
-                  </div>
-                ) : null}
-              </>
-            ) : null}
             {conditionMeta ? (
               <div>
                 <label className="text-xs font-semibold text-gray-700">
@@ -1769,12 +1881,9 @@ export default function FlowVisualization() {
     closeEdgeModal,
     deleteEdgeById,
     edgeForm.condition,
-    edgeForm.exceptionOther,
-    edgeForm.exceptionType,
     edgeForm.note,
     edgeForm.validations,
     edges,
-    nodes,
     onEdgeControlChange,
     pendingConnection,
     pendingEdgeEdit,
@@ -1796,6 +1905,18 @@ export default function FlowVisualization() {
     const isFunctionSection = isSection && selectedOption?.sectionType === 'function';
     const isClassSection = isSection && selectedOption?.sectionType === 'class';
     const isInterfaceSection = isSection && selectedOption?.sectionType === 'interface';
+    const isMainSection = isSection && selectedOption?.sectionType === 'main';
+    const isLoopSection =
+      isSection &&
+      (selectedOption?.sectionType === 'while' || selectedOption?.sectionType === 'for');
+    const loopPlaceholder =
+      selectedOption?.sectionType === 'for' ? '例: for item in items' : '例: i < 10';
+    const isCatchSection = isSection && selectedOption?.sectionType === 'catch';
+    const allowSectionValidations =
+      isSection &&
+      (selectedOption?.sectionType === 'function' ||
+        selectedOption?.sectionType === 'class' ||
+        selectedOption?.sectionType === 'interface');
 
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
@@ -1839,7 +1960,7 @@ export default function FlowVisualization() {
                   <>
                     <div>
                       <label className="text-xs font-semibold text-gray-700">
-                        表示名（関数名/クラス名）
+                        {isMainSection ? '表示名' : '表示名（関数名/クラス名）'}
                       </label>
                       <input
                         type="text"
@@ -1848,7 +1969,11 @@ export default function FlowVisualization() {
                         onChange={(event) =>
                           setNodeForm((current) => ({ ...current, label: event.target.value }))
                         }
-                        placeholder="例: fetchUser / UserService"
+                        placeholder={
+                          isMainSection
+                            ? '例: MainProcess'
+                            : '例: fetchUser / UserService'
+                        }
                       />
                     </div>
                     {isFunctionSection ? (
@@ -1951,7 +2076,9 @@ export default function FlowVisualization() {
                           )}
                         </div>
                         <div>
-                          <label className="text-xs font-semibold text-gray-700">返り値の型</label>
+                          <label className="text-xs font-semibold text-gray-700">
+                            返り値の型
+                          </label>
                           <input
                             type="text"
                             value={nodeForm.functionReturnType}
@@ -1963,6 +2090,21 @@ export default function FlowVisualization() {
                               }))
                             }
                             placeholder="例: UserResponse"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-gray-700">返り値</label>
+                          <input
+                            type="text"
+                            value={nodeForm.functionReturnValue}
+                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                            onChange={(event) =>
+                              setNodeForm((current) => ({
+                                ...current,
+                                functionReturnValue: event.target.value,
+                              }))
+                            }
+                            placeholder="例: user"
                           />
                         </div>
                       </>
@@ -2820,7 +2962,67 @@ export default function FlowVisualization() {
                         </div>
                       </>
                     ) : null}
-                    {isSection ? (
+                    {isLoopSection ? (
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700">条件式</label>
+                        <input
+                          type="text"
+                          value={nodeForm.loopCondition}
+                          className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                          onChange={(event) =>
+                            setNodeForm((current) => ({
+                              ...current,
+                              loopCondition: event.target.value,
+                            }))
+                          }
+                          placeholder={loopPlaceholder}
+                        />
+                      </div>
+                    ) : null}
+                    {isCatchSection ? (
+                      <>
+                        <div>
+                          <label className="text-xs font-semibold text-gray-700">例外種別</label>
+                          <select
+                            value={nodeForm.catchExceptionType}
+                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                            onChange={(event) =>
+                              setNodeForm((current) => ({
+                                ...current,
+                                catchExceptionType: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">選択してください</option>
+                            {CATCH_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        {nodeForm.catchExceptionType === 'other' ? (
+                          <div>
+                            <label className="text-xs font-semibold text-gray-700">
+                              例外詳細
+                            </label>
+                            <input
+                              type="text"
+                              value={nodeForm.catchExceptionOther}
+                              className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                              onChange={(event) =>
+                                setNodeForm((current) => ({
+                                  ...current,
+                                  catchExceptionOther: event.target.value,
+                                }))
+                              }
+                              placeholder="例: CustomNotFoundError"
+                            />
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                    {allowSectionValidations ? (
                       <div>
                         <div className="flex items-center justify-between">
                           <label className="text-xs font-semibold text-gray-700">validation</label>
@@ -2941,18 +3143,20 @@ export default function FlowVisualization() {
                         )}
                       </div>
                     ) : null}
-                    <div>
-                      <label className="text-xs font-semibold text-gray-700">補足コメント</label>
-                      <textarea
-                        value={nodeForm.note}
-                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
-                        rows={3}
-                        onChange={(event) =>
-                          setNodeForm((current) => ({ ...current, note: event.target.value }))
-                        }
-                        placeholder="補足コメントを入力"
-                      />
-                    </div>
+                    {isMainSection ? null : (
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700">補足コメント</label>
+                        <textarea
+                          value={nodeForm.note}
+                          className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                          rows={3}
+                          onChange={(event) =>
+                            setNodeForm((current) => ({ ...current, note: event.target.value }))
+                          }
+                          placeholder="補足コメントを入力"
+                        />
+                      </div>
+                    )}
                   </>
                 ) : (
                   <>
@@ -3045,12 +3249,16 @@ export default function FlowVisualization() {
     nodeForm.classConstructorArgs,
     nodeForm.classMembers,
     nodeForm.classMethods,
+    nodeForm.catchExceptionOther,
+    nodeForm.catchExceptionType,
     nodeForm.condition,
     nodeForm.functionArgs,
+    nodeForm.functionReturnValue,
     nodeForm.functionReturnType,
     nodeForm.interfaceMembers,
     nodeForm.interfaceMethods,
     nodeForm.label,
+    nodeForm.loopCondition,
     nodeForm.note,
     nodeForm.validations,
     nodeModalOption,
