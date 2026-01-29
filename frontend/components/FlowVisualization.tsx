@@ -740,7 +740,7 @@ function LogicNode({ data }: NodeProps<LogicNodeData>) {
 
   return (
     <div
-      className="rounded-md border-2 px-4 py-3 min-w-[120px] text-sm font-medium text-slate-900 backdrop-blur-md shadow-lg ring-1 ring-white/40"
+      className="rounded-md border-2 px-5 py-4 min-w-[160px] min-h-[72px] text-base font-medium text-slate-900 backdrop-blur-md shadow-lg ring-1 ring-white/40"
       style={{
         borderColor,
         backgroundColor: toRgba(nodeBg, 0.35),
@@ -754,14 +754,14 @@ function LogicNode({ data }: NodeProps<LogicNodeData>) {
             : undefined,
       }}
     >
-      {showLabel ? <div className="text-sm font-semibold">{label}</div> : null}
+      {showLabel ? <div className="text-center text-base font-semibold">{label}</div> : null}
       {data.condition ? (
-        <div className="mt-1 text-xs text-gray-700 whitespace-pre-wrap">
+        <div className="mt-1 text-sm text-gray-700 whitespace-pre-wrap">
           条件式: {data.condition}
         </div>
       ) : null}
       {data.note ? (
-        <div className="mt-1 text-xs text-gray-500 whitespace-pre-wrap">補足: {data.note}</div>
+        <div className="mt-1 text-sm text-gray-500 whitespace-pre-wrap">補足: {data.note}</div>
       ) : null}
       <Handle type="source" position={Position.Left} id="h-left" />
       <Handle type="source" position={Position.Right} id="h-right" />
@@ -3765,7 +3765,6 @@ export default function FlowVisualization() {
         onInit={onInit}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
-        fitView
       >
         <Controls />
         <MiniMap />
