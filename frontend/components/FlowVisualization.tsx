@@ -102,7 +102,15 @@ const STAMP_OPTIONS = [
   { id: 'consult', emoji: '🚩', label: '要相談' },
 ] as const;
 
+const TEMPLATE_OPTIONS = [
+  { id: 'dfs', name: 'DFS（深さ優先探索）', description: 'スタックを使用した深さ優先探索' },
+  { id: 'bfs', name: 'BFS（幅優先探索）', description: 'キューを使用した幅優先探索' },
+  { id: 'binary_search', name: '二分探索', description: 'ソート済み配列での効率的な探索' },
+  { id: 'a_star', name: 'A*探索', description: 'ヒューリスティックを使用した最短経路探索' },
+] as const;
+
 type StampType = (typeof STAMP_OPTIONS)[number]['id'];
+type TemplateType = (typeof TEMPLATE_OPTIONS)[number]['id'];
 
 type MemoNodeData = {
   text: string;
@@ -1165,6 +1173,7 @@ export default function FlowVisualization() {
     useState<EdgeControlType>(DEFAULT_EDGE_CONTROL);
   const [edgeForm, setEdgeForm] = useState<EdgeFormState>({ ...EMPTY_EDGE_FORM });
   const [pendingStamp, setPendingStamp] = useState<StampType | null>(null);
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [debugEvent, setDebugEvent] = useState<{
     type: string;
     x: number;
@@ -1415,6 +1424,283 @@ export default function FlowVisualization() {
     setMemoText(node.data.text ?? '');
     setPendingMemoEdit({ id: node.id });
   }, []);
+
+  const openTemplateModal = useCallback(() => {
+    setPendingConnection(null);
+    setPendingNodeClientPosition(null);
+    setPendingNodeDelete(null);
+    setPendingNodeEdit(null);
+    setPendingEdgeEdit(null);
+    setPendingMemoEdit(null);
+    setPendingStamp(null);
+    setNodeModalOption(null);
+    setNodeForm({ ...EMPTY_NODE_FORM });
+    setIsTemplateModalOpen(true);
+  }, []);
+
+  const closeTemplateModal = useCallback(() => {
+    setIsTemplateModalOpen(false);
+  }, []);
+
+  const applyTemplate = useCallback((templateId: TemplateType) => {
+    const wrapper = wrapperRef.current;
+    const instance = reactFlowInstance.current;
+    if (!wrapper || !instance) return;
+
+    const viewportCenter = {
+      x: wrapper.clientWidth / 2,
+      y: wrapper.clientHeight / 2,
+    };
+    const flowCenter = instance.screenToFlowPosition(viewportCenter);
+
+    if (templateId === 'dfs') {
+      // DFS（深さ優先探索）テンプレートの作成
+      const startNode = createLogicNode({
+        kind: 'start',
+        label: 'Start',
+        position: { x: flowCenter.x - 400, y: flowCenter.y },
+      });
+
+      // DFS関数セクション
+      const dfsFunctionX = flowCenter.x - 280;
+      const dfsFunctionY = flowCenter.y - 100;
+      const dfsFunction = createSectionNode({
+        sectionType: 'function',
+        label: 'dfs(graph, startNode)',
+        position: { x: dfsFunctionX, y: dfsFunctionY },
+      });
+
+      // DFS関数内のノード（セクション内相対位置）
+      const initStackNode = createLogicNode({
+        kind: 'normal',
+        label: 'スタック初期化',
+        position: { x: 30, y: 40 },
+        instanceOfSectionId: dfsFunction.id,
+      });
+      // parentNodeとextentを設定してセクション内配置
+      initStackNode.parentNode = dfsFunction.id;
+      initStackNode.extent = 'parent';
+
+      const addStartToStackNode = createLogicNode({
+        kind: 'normal',
+        label: '開始ノード追加',
+        position: { x: 30, y: 80 },
+        instanceOfSectionId: dfsFunction.id,
+      });
+      // parentNodeとextentを設定してセクション内配置
+      addStartToStackNode.parentNode = dfsFunction.id;
+      addStartToStackNode.extent = 'parent';
+
+      // While文セクション
+      const whileSectionX = flowCenter.x - 50;
+      const whileSectionY = flowCenter.y - 100;
+      const whileSection = createSectionNode({
+        sectionType: 'while',
+        label: 'スタックが空でない間',
+        position: { x: whileSectionX, y: whileSectionY },
+        loopCondition: '!stack.isEmpty()',
+      });
+
+      // While文内のノード（セクション内相対位置）
+      const popNode = createLogicNode({
+        kind: 'normal',
+        label: 'current = stack.pop()',
+        position: { x: 30, y: 40 },
+        instanceOfSectionId: whileSection.id,
+      });
+      popNode.parentNode = whileSection.id;
+      popNode.extent = 'parent';
+
+      const visitedCheckIf = createLogicNode({
+        kind: 'normal',
+        label: 'if (!visited[current])',
+        position: { x: 30, y: 80 },
+        instanceOfSectionId: whileSection.id,
+      });
+      visitedCheckIf.parentNode = whileSection.id;
+      visitedCheckIf.extent = 'parent';
+
+      const markVisitedNode = createLogicNode({
+        kind: 'normal',
+        label: 'visited[current] = true',
+        position: { x: 200, y: 80 },
+        instanceOfSectionId: whileSection.id,
+      });
+      markVisitedNode.parentNode = whileSection.id;
+      markVisitedNode.extent = 'parent';
+
+      const processNode = createLogicNode({
+        kind: 'normal',
+        label: 'process(current)',
+        position: { x: 30, y: 120 },
+        instanceOfSectionId: whileSection.id,
+      });
+      processNode.parentNode = whileSection.id;
+      processNode.extent = 'parent';
+
+      const addNeighborsNode = createLogicNode({
+        kind: 'normal',
+        label: 'stack.push(neighbors)',
+        position: { x: 200, y: 120 },
+        instanceOfSectionId: whileSection.id,
+      });
+      addNeighborsNode.parentNode = whileSection.id;
+      addNeighborsNode.extent = 'parent';
+
+      const endNode = createLogicNode({
+        kind: 'end',
+        label: 'End',
+        position: { x: flowCenter.x + 400, y: flowCenter.y },
+      });
+
+      const newNodes = [
+        startNode, dfsFunction, initStackNode, addStartToStackNode,
+        whileSection, popNode, visitedCheckIf, markVisitedNode,
+        processNode, addNeighborsNode, endNode
+      ];
+
+      // エッジを正しい形式で作成（下から上の接続）
+      const flowStyle = CONTROL_STYLE.flow;
+      const ifStyle = CONTROL_STYLE.if;
+      const newEdges: Edge<LogicEdgeData>[] = [
+        // Start → DFS関数
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: startNode.id,
+          target: dfsFunction.id,
+          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // DFS関数への入口 → 初期化
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: dfsFunction.id,
+          target: initStackNode.id,
+          sourceHandle: 'bottom',
+          targetHandle: 'top',
+          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // DFS関数内：初期化 → 開始ノード追加
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: initStackNode.id,
+          target: addStartToStackNode.id,
+          sourceHandle: 'bottom',
+          targetHandle: 'top',
+          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // DFS関数から → While文セクションへ
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: addStartToStackNode.id,
+          target: whileSection.id,
+          sourceHandle: 'bottom',
+          targetHandle: 'top',
+          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // While文への入口 → ポップ
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: whileSection.id,
+          target: popNode.id,
+          sourceHandle: 'bottom',
+          targetHandle: 'top',
+          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // While文内：ポップ → if判定
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: popNode.id,
+          target: visitedCheckIf.id,
+          sourceHandle: 'bottom',
+          targetHandle: 'top',
+          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // if判定 → 訪問済み設定（true分岐）
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: visitedCheckIf.id,
+          target: markVisitedNode.id,
+          sourceHandle: 'right',
+          targetHandle: 'left',
+          data: { controlType: 'if', condition: 'true', note: '', validations: [], parallelOffset: 0 },
+          style: ifStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: ifStyle.color },
+        },
+        // 訪問済み設定 → ノード処理
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: markVisitedNode.id,
+          target: processNode.id,
+          sourceHandle: 'bottom',
+          targetHandle: 'top',
+          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // ノード処理 → 隣接ノード追加
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: processNode.id,
+          target: addNeighborsNode.id,
+          sourceHandle: 'right',
+          targetHandle: 'left',
+          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // While文ループバック（隣接ノード追加からwhile開始へ）
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: addNeighborsNode.id,
+          target: whileSection.id,
+          sourceHandle: 'top',
+          targetHandle: 'bottom',
+          data: { controlType: 'flow', condition: 'ループ継続', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+        // While文終了 → End（条件が偽のとき）
+        {
+          id: `edge-${nextEdgeSeq.current++}`,
+          type: 'logicEdge',
+          source: whileSection.id,
+          target: endNode.id,
+          sourceHandle: 'bottom',
+          targetHandle: 'top',
+          data: { controlType: 'flow', condition: 'スタック空', note: '', validations: [], parallelOffset: 0 },
+          style: flowStyle,
+          markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
+        },
+      ];
+
+      setNodes(prev => [...prev, ...newNodes]);
+      setEdges(prev => normalizeParallelOffsets([...prev, ...newEdges]));
+    }
+
+    setIsTemplateModalOpen(false);
+  }, [createLogicNode, createSectionNode, setNodes, setEdges]);
 
   const cancelMemoModal = useCallback(() => {
     setPendingMemoClientPosition(null);
@@ -3985,6 +4271,42 @@ export default function FlowVisualization() {
     );
   }, [deleteNodeById, pendingNodeDelete]);
 
+  const templateModalContent = useMemo(() => {
+    if (!isTemplateModalOpen) return null;
+    return (
+      <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+          <h3 className="text-lg font-semibold text-gray-900">アルゴリズムテンプレート</h3>
+          <p className="mt-1 text-sm text-gray-600">
+            使用するアルゴリズムテンプレートを選択してください。
+          </p>
+          <div className="mt-4 grid grid-cols-1 gap-2">
+            {TEMPLATE_OPTIONS.map((template) => (
+              <button
+                key={template.id}
+                type="button"
+                className="rounded-md border border-gray-200 bg-white px-4 py-3 text-left text-sm font-semibold text-gray-900 hover:bg-gray-50"
+                onClick={() => applyTemplate(template.id)}
+              >
+                <div className="font-semibold">{template.name}</div>
+                <div className="text-xs text-gray-600 mt-1">{template.description}</div>
+              </button>
+            ))}
+          </div>
+          <div className="mt-5 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              onClick={closeTemplateModal}
+            >
+              キャンセル
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }, [isTemplateModalOpen, applyTemplate, closeTemplateModal]);
+
   return (
     <div
       className="relative h-full w-full bg-gradient-to-br from-slate-50 via-slate-100 to-sky-50"
@@ -4052,6 +4374,13 @@ export default function FlowVisualization() {
       </div>
       <div className="absolute right-3 top-3 z-30 flex flex-col items-end gap-2">
         <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-white/90 px-3 py-2 text-xs font-semibold text-gray-900 shadow-sm">
+          <button
+            type="button"
+            className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+            onClick={openTemplateModal}
+          >
+            📐 テンプレート
+          </button>
           <button
             type="button"
             className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100"
@@ -4123,6 +4452,7 @@ export default function FlowVisualization() {
       {memoModalContent}
       {nodeModalContent}
       {nodeDeleteContent}
+      {templateModalContent}
     </div>
   );
 }
