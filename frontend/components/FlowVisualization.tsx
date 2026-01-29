@@ -1496,8 +1496,8 @@ export default function FlowVisualization() {
       const edge: Edge<LogicEdgeData> = {
         id: edgeId,
         type: 'logicEdge',
-        source: instanceNode.id,
-        target: classNode.id,
+        source: classNode.id,
+        target: instanceNode.id,
         label: buildEdgeLabel('flow', undefined, undefined, []),
         style: {
           stroke: style.color,
