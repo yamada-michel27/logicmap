@@ -297,10 +297,10 @@ function findSectionAtPoint(
   return best;
 }
 
-function getBaseNodeClass(nodeKind: NodeKind) {
-  if (nodeKind === 'start') return 'bg-emerald-50';
-  if (nodeKind === 'end') return 'bg-rose-50';
-  return 'bg-white';
+function getBaseNodeTint(nodeKind: NodeKind) {
+  if (nodeKind === 'start') return '#ecfdf5';
+  if (nodeKind === 'end') return '#fff1f2';
+  return '#ffffff';
 }
 
 function getLogicNodeLabel(data: LogicNodeData) {
@@ -735,17 +735,15 @@ function LogicNode({ data }: NodeProps<LogicNodeData>) {
   const label =
     data.label ?? (data.nodeKind === 'start' ? 'Start' : data.nodeKind === 'end' ? 'End' : '');
   const borderColor = controlStyle?.color ?? '#1f2937';
-  const nodeBg = controlStyle?.nodeBg ?? undefined;
+  const nodeBg = controlStyle?.nodeBg ?? getBaseNodeTint(data.nodeKind);
   const showLabel = label.length > 0;
 
   return (
     <div
-      className={`rounded-md border-2 shadow-sm px-4 py-3 min-w-[120px] text-sm font-medium text-gray-900 ${getBaseNodeClass(
-        data.nodeKind
-      )}`}
+      className="rounded-md border-2 px-4 py-3 min-w-[120px] text-sm font-medium text-slate-900 backdrop-blur-md shadow-lg ring-1 ring-white/40"
       style={{
         borderColor,
-        backgroundColor: nodeBg,
+        backgroundColor: toRgba(nodeBg, 0.35),
         borderStyle:
           controlStyle?.edgeDash || data.controlType === 'function' || data.controlType === 'class'
             ? 'dashed'
@@ -775,7 +773,7 @@ function LogicNode({ data }: NodeProps<LogicNodeData>) {
 
 function MemoNode({ data, selected }: NodeProps<MemoNodeData>) {
   return (
-    <div className="relative h-full w-full rounded-lg border border-amber-200 bg-amber-50/90 p-3 text-sm text-gray-900 shadow-sm">
+    <div className="relative h-full w-full rounded-lg border border-white/60 bg-amber-50/60 p-3 text-sm text-slate-900 backdrop-blur-md shadow-lg ring-1 ring-white/40">
       <NodeResizer isVisible={selected} minWidth={MEMO_MIN_WIDTH} minHeight={MEMO_MIN_HEIGHT} />
       <div className="text-xs font-semibold text-amber-700">メモ</div>
       {data.text?.trim().length > 0 ? (
@@ -790,10 +788,10 @@ function MemoNode({ data, selected }: NodeProps<MemoNodeData>) {
 function StampNode({ id, data }: NodeProps<StampNodeData>) {
   const stamp = STAMP_OPTIONS.find((option) => option.id === data.stamp);
   return (
-    <div className="group relative flex h-full w-full items-center justify-center rounded-full border border-gray-200 bg-white/90 shadow-sm">
+    <div className="group relative flex h-full w-full items-center justify-center rounded-full border border-white/60 bg-white/50 backdrop-blur-md shadow-lg ring-1 ring-white/50">
       <button
         type="button"
-        className="absolute -right-2 -top-2 hidden h-5 w-5 items-center justify-center rounded-full border border-gray-200 bg-white text-[10px] text-gray-600 shadow-sm group-hover:flex"
+        className="absolute -right-2 -top-2 hidden h-5 w-5 items-center justify-center rounded-full border border-white/70 bg-white/80 text-[10px] text-gray-600 shadow-sm group-hover:flex"
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -811,7 +809,7 @@ function StampNode({ id, data }: NodeProps<StampNodeData>) {
 
 function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
   const style = CONTROL_STYLE[data.sectionType];
-  const sectionBg = toRgba(style.nodeBg ?? '#f8fafc', 0.45);
+  const sectionBg = toRgba(style.nodeBg ?? '#f8fafc', 0.28);
   const details: { label: string; value: string }[] = [];
   if (data.sectionType === 'function') {
     const args = formatTypedFields(data.functionArgs);
@@ -912,7 +910,7 @@ function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
   }
   return (
     <div
-      className="relative h-full w-full rounded-xl border-2 border-dashed p-3 text-sm text-gray-700 shadow-sm"
+      className="relative h-full w-full rounded-xl border-2 border-dashed p-3 text-sm text-slate-800 backdrop-blur-md shadow-lg ring-1 ring-white/40"
       style={{ borderColor: style.color, backgroundColor: sectionBg }}
     >
       <NodeResizer
@@ -3698,7 +3696,7 @@ export default function FlowVisualization() {
 
   return (
     <div
-      className="relative h-full w-full"
+      className="relative h-full w-full bg-gradient-to-br from-slate-50 via-slate-100 to-sky-50"
       ref={wrapperRef}
       onDoubleClickCapture={onWrapperDoubleClickCapture}
       onClickCapture={onWrapperClickCapture}
@@ -3753,6 +3751,7 @@ export default function FlowVisualization() {
       <ReactFlow
         nodes={nodesForRender}
         edges={edgesForRender}
+        className="rounded-2xl border border-white/50 bg-white/35 backdrop-blur-xl shadow-xl"
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
