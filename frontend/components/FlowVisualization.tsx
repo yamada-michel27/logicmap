@@ -126,6 +126,44 @@ type LogicEdgeData = {
   onEdit?: (edgeId: string) => void;
 };
 
+type StoredNode = Pick<
+  Node<FlowNodeData>,
+  'id' | 'type' | 'position' | 'data' | 'parentNode' | 'extent' | 'style' | 'width' | 'height'
+>;
+
+type StoredEdge = Pick<
+  Edge<LogicEdgeData>,
+  | 'id'
+  | 'type'
+  | 'source'
+  | 'target'
+  | 'sourceHandle'
+  | 'targetHandle'
+  | 'data'
+  | 'style'
+  | 'markerEnd'
+  | 'markerStart'
+>;
+
+type FlowSnapshot = {
+  version: number;
+  nodes: StoredNode[];
+  edges: StoredEdge[];
+  nextNodeSeq: number;
+  nextEdgeSeq: number;
+};
+
+type SavedFlowSummary = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type SavedFlowDetail = SavedFlowSummary & {
+  snapshot: FlowSnapshot;
+};
+
 type NodeRect = {
   x: number;
   y: number;
@@ -182,6 +220,9 @@ const EDGE_HIT_RADIUS = 28;
 const INSTANCE_OFFSET_X = 220;
 const INSTANCE_OFFSET_Y = 80;
 const DEFAULT_EDGE_CONTROL: EdgeControlType = 'flow';
+const FLOW_STORAGE_VERSION = 1;
+const USER_ID_STORAGE_KEY = 'logicmap:user-id';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
 
 type NodeFormState = {
   label: string;
@@ -349,6 +390,148 @@ function isEventFromNodeOrEdge(event: ReactMouseEvent) {
 function normalizeText(value: string) {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function cloneJson<T>(value: T): T {
+  if (value == null) return value;
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function formatSaveLabel(date: Date) {
+  return date.toLocaleString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function getUserId() {
+  if (typeof window === 'undefined') return 'unknown';
+  const stored = window.localStorage.getItem(USER_ID_STORAGE_KEY);
+  if (stored) return stored;
+  const generated =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `user-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  window.localStorage.setItem(USER_ID_STORAGE_KEY, generated);
+  return generated;
+}
+
+function resolveApiUrl(path: string) {
+  if (!API_BASE_URL) return path;
+  const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
+  return `${base}${path}`;
+}
+
+async function apiFetch<T>(path: string, options: RequestInit = {}) {
+  const headers = new Headers(options.headers ?? {});
+  headers.set('X-User-Id', getUserId());
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+  const response = await fetch(resolveApiUrl(path), { ...options, headers });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || response.statusText);
+  }
+  if (response.status === 204) {
+    return null as T;
+  }
+  return (await response.json()) as T;
+}
+
+function serializeNode(node: Node<FlowNodeData>): StoredNode {
+  let data: FlowNodeData;
+  if (node.type === 'stampNode') {
+    const stampData = node.data as StampNodeData;
+    data = { stamp: stampData.stamp, seq: stampData.seq };
+  } else if (node.type === 'memoNode') {
+    const memoData = node.data as MemoNodeData;
+    data = { text: memoData.text, seq: memoData.seq };
+  } else if (node.type === 'logicNode') {
+    const logicData = node.data as LogicNodeData;
+    data = {
+      label: logicData.label,
+      nodeKind: logicData.nodeKind,
+      seq: logicData.seq,
+      controlType: logicData.controlType,
+      condition: logicData.condition,
+      note: logicData.note,
+      instanceOfSectionId: logicData.instanceOfSectionId,
+    };
+  } else {
+    data = node.data as SectionNodeData;
+  }
+  return {
+    id: node.id,
+    type: node.type,
+    position: { ...node.position },
+    data: cloneJson(data),
+    parentNode: node.parentNode,
+    extent: node.extent,
+    style: node.style ? { ...node.style } : undefined,
+    width: node.width,
+    height: node.height,
+  };
+}
+
+function serializeEdge(edge: Edge<LogicEdgeData>): StoredEdge {
+  const data = ensureEdgeData(edge);
+  return {
+    id: edge.id,
+    type: 'logicEdge',
+    source: edge.source,
+    target: edge.target,
+    sourceHandle: edge.sourceHandle,
+    targetHandle: edge.targetHandle,
+    data: cloneJson({
+      controlType: data.controlType,
+      condition: data.condition,
+      note: data.note,
+      validations: data.validations ?? [],
+      parallelOffset: data.parallelOffset ?? 0,
+    }),
+  };
+}
+
+function hydrateNode(node: StoredNode): Node<FlowNodeData> {
+  return {
+    ...node,
+    position: { ...node.position },
+    data: cloneJson(node.data),
+    style: node.style ? { ...node.style } : undefined,
+  };
+}
+
+function hydrateEdge(edge: StoredEdge): Edge<LogicEdgeData> {
+  const base = {
+    ...edge,
+    type: 'logicEdge',
+    data: edge.data ?? { controlType: DEFAULT_EDGE_CONTROL },
+  };
+  return {
+    ...base,
+    data: ensureEdgeData(base as Edge<LogicEdgeData>),
+  };
+}
+
+function getNextNodeSeqFromNodes(nodes: StoredNode[]) {
+  const maxSeq = nodes.reduce((max, node) => {
+    const seq = (node.data as FlowNodeData).seq;
+    return typeof seq === 'number' && seq > max ? seq : max;
+  }, 0);
+  return Math.max(1, maxSeq + 1);
+}
+
+function getNextEdgeSeqFromEdges(edges: StoredEdge[]) {
+  const maxSeq = edges.reduce((max, edge) => {
+    const match = edge.id.match(/edge-(\d+)/);
+    const seq = match ? Number(match[1]) : 0;
+    return Number.isFinite(seq) && seq > max ? seq : max;
+  }, 0);
+  return Math.max(1, maxSeq + 1);
 }
 
 function formatTypedFields(items?: TypedField[]) {
@@ -957,6 +1140,11 @@ const edgeTypes = {
 export default function FlowVisualization() {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<LogicEdgeData>([]);
+  const [savedFlows, setSavedFlows] = useState<SavedFlowSummary[]>([]);
+  const [isLoadingFlows, setIsLoadingFlows] = useState(false);
+  const [isSavingFlow, setIsSavingFlow] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveName, setSaveName] = useState('');
   const [pendingConnection, setPendingConnection] = useState<Connection | null>(null);
   const [pendingNodeClientPosition, setPendingNodeClientPosition] = useState<XYPosition | null>(
     null
@@ -989,6 +1177,23 @@ export default function FlowVisualization() {
   const nextEdgeSeq = useRef(1);
   const debugEventCount = useRef(0);
   const lastPaneClickAt = useRef<number | null>(null);
+
+  const fetchSavedFlows = useCallback(async () => {
+    setIsLoadingFlows(true);
+    setSaveError(null);
+    try {
+      const list = await apiFetch<SavedFlowSummary[]>('/flows', { method: 'GET' });
+      setSavedFlows(list ?? []);
+    } catch {
+      setSaveError('保存データの取得に失敗しました。');
+    } finally {
+      setIsLoadingFlows(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchSavedFlows();
+  }, [fetchSavedFlows]);
 
   useEffect(() => {
     const normalized = normalizeParallelOffsets(edges);
@@ -1220,6 +1425,92 @@ export default function FlowVisualization() {
   const onInit = useCallback((instance: ReactFlowInstance) => {
     reactFlowInstance.current = instance;
   }, []);
+
+  const resetTransientState = useCallback(() => {
+    setPendingConnection(null);
+    setPendingNodeClientPosition(null);
+    setPendingMemoClientPosition(null);
+    setPendingNodeDelete(null);
+    setPendingNodeEdit(null);
+    setPendingMemoEdit(null);
+    setPendingEdgeEdit(null);
+    setNodeModalOption(null);
+    setNodeForm({ ...EMPTY_NODE_FORM });
+    setMemoText('');
+    setSelectedEdgeControl(DEFAULT_EDGE_CONTROL);
+    setEdgeForm({ ...EMPTY_EDGE_FORM });
+    setPendingStamp(null);
+  }, []);
+
+  const saveCurrentFlow = useCallback(async () => {
+    setIsSavingFlow(true);
+    setSaveError(null);
+    const now = new Date();
+    const name = saveName.trim() || formatSaveLabel(now);
+    const snapshot: FlowSnapshot = {
+      version: FLOW_STORAGE_VERSION,
+      nodes: nodes.map(serializeNode),
+      edges: edges.map(serializeEdge),
+      nextNodeSeq: nextNodeSeq.current,
+      nextEdgeSeq: nextEdgeSeq.current,
+    };
+    try {
+      await apiFetch<unknown>('/flows', {
+        method: 'POST',
+        body: JSON.stringify({ name, snapshot }),
+      });
+      await fetchSavedFlows();
+      setSaveName('');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (message.includes('limit_reached')) {
+        setSaveError('保存件数が上限(30件)に達しました。削除してから保存してください。');
+      } else {
+        setSaveError('保存に失敗しました。');
+      }
+    } finally {
+      setIsSavingFlow(false);
+    }
+  }, [edges, fetchSavedFlows, nodes, saveName]);
+
+  const deleteSavedFlow = useCallback(
+    async (flowId: string) => {
+      setSaveError(null);
+      try {
+        await apiFetch<unknown>(`/flows/${flowId}`, { method: 'DELETE' });
+        await fetchSavedFlows();
+      } catch {
+        setSaveError('削除に失敗しました。');
+      }
+    },
+    [fetchSavedFlows]
+  );
+
+  const restoreSavedFlow = useCallback(
+    async (flowId: string) => {
+      setSaveError(null);
+      try {
+        const detail = await apiFetch<SavedFlowDetail>(`/flows/${flowId}`, { method: 'GET' });
+        if (!detail?.snapshot) {
+          setSaveError('保存データの復元に失敗しました。');
+          return;
+        }
+        resetTransientState();
+        const snapshot = detail.snapshot;
+        const restoredNodes = snapshot.nodes.map(hydrateNode);
+        const restoredEdges = normalizeParallelOffsets(snapshot.edges.map(hydrateEdge));
+        setNodes(restoredNodes);
+        setEdges(restoredEdges);
+        const nextNode = snapshot.nextNodeSeq || getNextNodeSeqFromNodes(snapshot.nodes);
+        const nextEdge = snapshot.nextEdgeSeq || getNextEdgeSeqFromEdges(snapshot.edges);
+        nextNodeSeq.current = nextNode;
+        nextEdgeSeq.current = nextEdge;
+      } catch {
+        setSaveError('保存データの復元に失敗しました。');
+      }
+    },
+    [resetTransientState, setEdges, setNodes]
+  );
 
   const recordDebugEvent = useCallback((type: string, event: ReactMouseEvent) => {
     debugEventCount.current += 1;
@@ -3701,6 +3992,64 @@ export default function FlowVisualization() {
       onDoubleClickCapture={onWrapperDoubleClickCapture}
       onClickCapture={onWrapperClickCapture}
     >
+      <div className="absolute left-3 top-3 z-30 flex max-w-[calc(100%-1.5rem)] flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-md border border-gray-200 bg-white/90 px-3 py-2 text-xs font-semibold text-gray-900 shadow-sm">
+          <span className="text-xs text-gray-500">保存</span>
+          <input
+            type="text"
+            value={saveName}
+            className="w-52 rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900"
+            onChange={(event) => setSaveName(event.target.value)}
+            placeholder="保存名（空なら日時）"
+          />
+          <button
+            type="button"
+            className={`rounded-md px-3 py-1 text-xs font-semibold text-white ${
+              isSavingFlow ? 'bg-slate-400' : 'bg-slate-900 hover:bg-slate-800'
+            }`}
+            onClick={saveCurrentFlow}
+            disabled={isSavingFlow}
+          >
+            {isSavingFlow ? '保存中...' : '保存する'}
+          </button>
+        </div>
+        {saveError ? (
+          <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 shadow-sm">
+            {saveError}
+          </div>
+        ) : null}
+        {savedFlows.length > 0 ? (
+          <div className="flex flex-wrap gap-2 rounded-md border border-gray-200 bg-white/80 px-3 py-2 text-xs text-gray-900 shadow-sm">
+            {savedFlows.map((flow) => (
+              <div
+                key={flow.id}
+                className="flex items-center overflow-hidden rounded-full border border-gray-200 bg-white"
+              >
+                <button
+                  type="button"
+                  className="max-w-[180px] truncate px-3 py-1 text-xs font-semibold text-gray-800 hover:bg-gray-50"
+                  onClick={() => restoreSavedFlow(flow.id)}
+                  title={flow.name}
+                >
+                  {flow.name}
+                </button>
+                <button
+                  type="button"
+                  className="border-l border-gray-200 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                  onClick={() => deleteSavedFlow(flow.id)}
+                  aria-label="保存データを削除"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : isLoadingFlows ? (
+          <div className="rounded-md border border-gray-200 bg-white/80 px-3 py-2 text-xs text-gray-500 shadow-sm">
+            保存データを読み込み中...
+          </div>
+        ) : null}
+      </div>
       <div className="absolute right-3 top-3 z-30 flex flex-col items-end gap-2">
         <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-white/90 px-3 py-2 text-xs font-semibold text-gray-900 shadow-sm">
           <button

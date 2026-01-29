@@ -6,7 +6,8 @@ module "logicmap" {
   availability_zones = ["ap-northeast-1a", "ap-northeast-1c"]
 
   backend_container_environment = {
-    APP_ENV = "main"
+    APP_ENV     = "main"
+    DB_SSLMODE  = "require"
   }
 
   alb_ingress_cidrs      = ["0.0.0.0/0"]
