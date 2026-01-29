@@ -15,7 +15,7 @@ export default function Home() {
             LogicMap
           </h1>
           <p className="text-slate-600 dark:text-slate-200">
-            Visualize algorithm flows
+            See the whole flow. Think deeper. Align faster.
           </p>
         </header>
 
