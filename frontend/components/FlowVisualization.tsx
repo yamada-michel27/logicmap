@@ -830,6 +830,7 @@ function LogicEdge({
   markerEnd,
   markerStart,
 }: EdgeProps<LogicEdgeData>) {
+  const [isHovered, setIsHovered] = useState(false);
   const offsetSign = data?.parallelOffset ?? 0;
   let adjustedSourceX = sourceX;
   let adjustedSourceY = sourceY;
@@ -861,15 +862,49 @@ function LogicEdge({
     : undefined;
   const hasInteractiveLabel = Boolean(label) || Boolean(data?.onEdit);
 
+  // エッジホバー効果を含むカスタマイズスタイル
+  const enhancedStyle = {
+    ...style,
+    strokeWidth: isHovered ? 8 : (style?.strokeWidth || 2),
+    cursor: 'pointer',
+    transition: 'stroke-width 0.2s ease',
+  };
+
   return (
     <>
+      {/* 実際に見えるエッジ */}
       <BaseEdge
         id={id}
         path={edgePath}
-        style={style}
+        style={enhancedStyle}
         markerEnd={markerEnd}
         markerStart={markerStart}
       />
+      {/* 透明なクリック可能エリアをEdgeLabelRendererで表示 */}
+      <EdgeLabelRenderer>
+        <div
+          style={{
+            position: 'absolute',
+            transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+            background: 'transparent',
+            width: '20px',
+            height: '20px',
+            borderRadius: '50%',
+            cursor: 'pointer',
+            pointerEvents: 'all',
+            zIndex: 2000,
+          }}
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          onDoubleClick={(event: React.MouseEvent) => {
+            event.preventDefault();
+            event.stopPropagation();
+            if (data?.onEdit) {
+              data.onEdit(id);
+            }
+          }}
+        />
+      </EdgeLabelRenderer>
       {hasInteractiveLabel ? (
         <EdgeLabelRenderer>
           <div
@@ -1127,7 +1162,7 @@ function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
       style={{
         borderColor: style.color,
         backgroundColor: 'transparent',
-        zIndex: -1,
+        zIndex: -10,
         pointerEvents: 'none'
       }}
     >
@@ -1344,7 +1379,8 @@ export default function FlowVisualization() {
           interfaceMethods: params.interfaceMethods,
           validations: params.validations,
         },
-      };
+        resizable: true,
+      } as Node<SectionNodeData>;
     },
     []
   );
@@ -5088,6 +5124,7 @@ export default function FlowVisualization() {
         onInit={onInit}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
+        elevateEdgesOnSelect={true}
       >
         <Controls />
         <MiniMap />
