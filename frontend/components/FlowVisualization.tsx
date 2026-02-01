@@ -589,11 +589,11 @@ function formatValidationLabel(rule: ValidationRule) {
 }
 
 const CATCH_OPTIONS = [
-  { value: 'ValueError', label: 'ValueError' },
-  { value: 'TypeError', label: 'TypeError' },
-  { value: 'KeyError', label: 'KeyError' },
-  { value: 'IndexError', label: 'IndexError' },
-  { value: 'CustomError', label: 'CustomError' },
+  { value: 'NullPointerException', label: '参照エラー' },
+  { value: 'IllegalArgumentException', label: '引数エラー' },
+  { value: 'FileNotFoundException', label: 'ファイルエラー' },
+  { value: 'NetworkException', label: '通信エラー' },
+  { value: 'ValidationException', label: '検証エラー' },
   { value: 'other', label: 'その他' },
 ] as const;
 
@@ -3456,7 +3456,7 @@ export default function FlowVisualization() {
                   <>
                     <div>
                       <label className="text-xs font-semibold text-gray-700">
-                        {isMainSection ? '表示名' : '表示名（関数名/クラス名）'}
+                        {isMainSection || isCatchSection ? '表示名' : '表示名（関数名/クラス名）'}
                       </label>
                       <input
                         type="text"
@@ -3468,6 +3468,8 @@ export default function FlowVisualization() {
                         placeholder={
                           isMainSection
                             ? '例: MainProcess'
+                            : isCatchSection
+                            ? '例: ErrorHandler'
                             : '例: fetchUser / UserService'
                         }
                       />
@@ -4549,7 +4551,7 @@ export default function FlowVisualization() {
                                   catchExceptionOther: event.target.value,
                                 }))
                               }
-                              placeholder="例: CustomNotFoundError"
+                              placeholder="例: UserNotFoundException"
                             />
                           </div>
                         ) : null}
