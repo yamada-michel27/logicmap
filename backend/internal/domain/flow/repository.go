@@ -10,5 +10,6 @@ type Repository interface {
 	Create(ctx context.Context, userID, name string, snapshot json.RawMessage) (*Flow, error)
 	ListByUser(ctx context.Context, userID, search string, limit int) ([]Summary, error)
 	GetByID(ctx context.Context, userID, flowID string) (*Flow, error)
+	UpdateByID(ctx context.Context, userID, flowID string, snapshot json.RawMessage) (*Flow, error)
 	DeleteByID(ctx context.Context, userID, flowID string) (bool, error)
 }

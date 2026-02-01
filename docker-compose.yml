@@ -58,6 +58,7 @@ services:
       - "${FRONTEND_PORT}:3000"
     environment:
       - API_BASE_URL=${API_BASE_URL}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
       - NODE_ENV=${NODE_ENV}
     depends_on:
       backend:
