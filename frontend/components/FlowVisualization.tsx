@@ -1128,7 +1128,7 @@ function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
         borderColor: style.color,
         backgroundColor: 'transparent',
         zIndex: -1,
-        pointerEvents: 'none'
+        pointerEvents: 'all'
       }}
     >
       <NodeResizer
@@ -1344,7 +1344,8 @@ export default function FlowVisualization() {
           interfaceMethods: params.interfaceMethods,
           validations: params.validations,
         },
-      };
+        resizable: true,
+      } as Node<SectionNodeData>;
     },
     []
   );
