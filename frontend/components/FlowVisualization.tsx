@@ -1202,6 +1202,7 @@ export default function FlowVisualization() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportedText, setExportedText] = useState('');
   const [isCopied, setIsCopied] = useState(false);
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
   const [debugEvent, setDebugEvent] = useState<{
     type: string;
     x: number;
@@ -2133,6 +2134,22 @@ export default function FlowVisualization() {
     setExportedText('');
     setIsCopied(false);
   }, []);
+
+  const openClearModal = useCallback(() => {
+    setIsClearModalOpen(true);
+  }, []);
+
+  const closeClearModal = useCallback(() => {
+    setIsClearModalOpen(false);
+  }, []);
+
+  const clearCanvas = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    nextNodeSeq.current = 1;
+    nextEdgeSeq.current = 1;
+    setIsClearModalOpen(false);
+  }, [setNodes, setEdges]);
 
   const copyToClipboard = useCallback(async () => {
     try {
@@ -4819,6 +4836,42 @@ export default function FlowVisualization() {
     );
   }, [isExportModalOpen, exportedText, isCopied, copyToClipboard, downloadFlowStructure, closeExportModal]);
 
+  const clearModalContent = useMemo(() => {
+    if (!isClearModalOpen) return null;
+    return (
+      <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">キャンバスをクリア</h3>
+          </div>
+          <div className="mb-6">
+            <p className="text-sm text-gray-600">
+              すべてのノード、エッジ、セクション、メモ、スタンプが削除されます。
+              <br />
+              この操作は元に戻せません。続行しますか？
+            </p>
+          </div>
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              onClick={closeClearModal}
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+              onClick={clearCanvas}
+            >
+              クリアする
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }, [isClearModalOpen, closeClearModal, clearCanvas]);
+
   return (
     <div
       className="relative h-full w-full bg-gradient-to-br from-slate-50 via-slate-100 to-sky-50"
@@ -4902,6 +4955,13 @@ export default function FlowVisualization() {
           </button>
           <button
             type="button"
+            className="rounded-md border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
+            onClick={openClearModal}
+          >
+            🗑️ クリア
+          </button>
+          <button
+            type="button"
             className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100"
             onClick={openMemoCreateModal}
           >
@@ -4973,6 +5033,7 @@ export default function FlowVisualization() {
       {nodeDeleteContent}
       {templateModalContent}
       {exportModalContent}
+      {clearModalContent}
     </div>
   );
 }
