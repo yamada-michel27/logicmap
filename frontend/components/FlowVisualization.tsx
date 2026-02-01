@@ -1201,6 +1201,7 @@ export default function FlowVisualization() {
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportedText, setExportedText] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
   const [debugEvent, setDebugEvent] = useState<{
     type: string;
     x: number;
@@ -2130,12 +2131,19 @@ export default function FlowVisualization() {
   const closeExportModal = useCallback(() => {
     setIsExportModalOpen(false);
     setExportedText('');
+    setIsCopied(false);
   }, []);
 
   const copyToClipboard = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(exportedText);
-      alert('クリップボードにコピーしました！');
+      setIsCopied(true);
+      // 1.5秒後にモーダルを閉じる
+      setTimeout(() => {
+        setIsExportModalOpen(false);
+        setExportedText('');
+        setIsCopied(false);
+      }, 1500);
     } catch (err) {
       console.error('コピーに失敗しました:', err);
       alert('コピーに失敗しました');
@@ -4772,10 +4780,15 @@ export default function FlowVisualization() {
             <div className="flex gap-2">
               <button
                 type="button"
-                className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                className={`rounded-md border px-3 py-1 text-xs font-semibold ${
+                  isCopied
+                    ? 'border-green-200 bg-green-50 text-green-700'
+                    : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                }`}
                 onClick={copyToClipboard}
+                disabled={isCopied}
               >
-                📋 コピー
+                {isCopied ? '✓ コピーしました' : '📋 コピー'}
               </button>
               <button
                 type="button"
@@ -4804,7 +4817,7 @@ export default function FlowVisualization() {
         </div>
       </div>
     );
-  }, [isExportModalOpen, exportedText, copyToClipboard, downloadFlowStructure, closeExportModal]);
+  }, [isExportModalOpen, exportedText, isCopied, copyToClipboard, downloadFlowStructure, closeExportModal]);
 
   return (
     <div
