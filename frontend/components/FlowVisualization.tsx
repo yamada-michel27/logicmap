@@ -3085,7 +3085,7 @@ export default function FlowVisualization() {
 
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-        <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
+        <div className="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
           <h3 className="text-lg font-semibold text-gray-900">
             {isEdit ? 'エッジを編集' : '制御構文を選択'}
           </h3>
@@ -3302,7 +3302,7 @@ export default function FlowVisualization() {
     if (!pendingMemoClientPosition && !pendingMemoEdit) return null;
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+        <div className="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
           <h3 className="text-lg font-semibold text-gray-900">
             {isEdit ? 'メモを編集' : 'メモを追加'}
           </h3>
@@ -3416,7 +3416,7 @@ export default function FlowVisualization() {
 
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-        <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
+        <div className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
           <h3 className="text-lg font-semibold text-gray-900">
             {isEdit ? 'ノード種別を変更' : 'ノード種別を選択'}
           </h3>
@@ -4874,7 +4874,7 @@ export default function FlowVisualization() {
     if (!isExportModalOpen) return null;
     return (
       <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
-        <div className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl">
+        <div className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900">フロー構造エクスポート</h3>
             <div className="flex gap-2">
