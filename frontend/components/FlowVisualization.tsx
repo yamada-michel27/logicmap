@@ -1519,10 +1519,11 @@ export default function FlowVisualization() {
     const flowCenter = instance.screenToFlowPosition(viewportCenter);
 
     if (templateId === 'dfs') {
-      // DFS（深さ優先探索）テンプレートの作成（十分なマージンで配置）
-      const SECTION_MARGIN = 200; // セクション間のマージン（大幅増加）
-      const NODE_MARGIN = 120; // セクション内ノード間のマージン（大幅増加）
-      const SECTION_TO_NODE_MARGIN = 150; // セクションと外部ノード間のマージン（大幅増加）
+      // DFS（深さ優先探索）テンプレートの作成（見やすいレイアウト）
+      const SECTION_MARGIN = 300; // セクション間のマージン（さらに拡大）
+      const NODE_MARGIN = 150; // セクション内ノード間のマージン（さらに拡大）
+      const SECTION_TO_NODE_MARGIN = 200; // セクションと外部ノード間のマージン（さらに拡大）
+      const HORIZONTAL_SPACING = 400; // 水平方向の間隔（新規追加）
 
       const startNode = createLogicNode({
         kind: 'start',
@@ -1534,15 +1535,15 @@ export default function FlowVisualization() {
       const functionCallNode = createLogicNode({
         kind: 'normal',
         label: 'DFS関数呼び出し',
-        position: { x: flowCenter.x, y: flowCenter.y - 500 },
+        position: { x: flowCenter.x, y: flowCenter.y - 600 },
       });
 
-      // DFS関数内のノード定義（完全なアルゴリズム + return文）
+      // DFS関数内のノード定義（シンプルで見やすく）
       const dfsFunctionNodes = [
-        { position: { x: 250, y: 40 }, label: 'visited = new Set()' },
-        { position: { x: 250, y: 40 + NODE_MARGIN }, label: 'result = []' },
-        { position: { x: 250, y: 40 + NODE_MARGIN * 2 }, label: 'stack = [startNode]' },
-        { position: { x: 250, y: 40 + NODE_MARGIN * 8 }, label: 'return result' },
+        { position: { x: 200, y: 60 }, label: 'visited = new Set()' },
+        { position: { x: 200, y: 60 + NODE_MARGIN }, label: 'result = []' },
+        { position: { x: 200, y: 60 + NODE_MARGIN * 2 }, label: 'stack = [startNode]' },
+        { position: { x: 200, y: 60 + NODE_MARGIN * 6 }, label: 'return result' },
       ];
 
       // DFS関数セクションのサイズを動的計算
@@ -1562,7 +1563,7 @@ export default function FlowVisualization() {
       const initVisitedNode = createLogicNode({
         kind: 'normal',
         label: 'visited = new Set()',
-        position: { x: 250, y: 40 },
+        position: { x: 200, y: 60 },
         instanceOfSectionId: dfsFunction.id,
       });
       initVisitedNode.parentNode = dfsFunction.id;
@@ -1571,7 +1572,7 @@ export default function FlowVisualization() {
       const initResultNode = createLogicNode({
         kind: 'normal',
         label: 'result = []',
-        position: { x: 250, y: 40 + NODE_MARGIN },
+        position: { x: 200, y: 60 + NODE_MARGIN },
         instanceOfSectionId: dfsFunction.id,
       });
       initResultNode.parentNode = dfsFunction.id;
@@ -1580,22 +1581,22 @@ export default function FlowVisualization() {
       const initStackNode = createLogicNode({
         kind: 'normal',
         label: 'stack = [startNode]',
-        position: { x: 250, y: 40 + NODE_MARGIN * 2 },
+        position: { x: 200, y: 60 + NODE_MARGIN * 2 },
         instanceOfSectionId: dfsFunction.id,
       });
       initStackNode.parentNode = dfsFunction.id;
       initStackNode.extent = 'parent';
 
-      // While文内のノード定義（完全なDFSステップ）
+      // While文内のノード定義（見やすく配置）
       const whileSectionNodes = [
-        { position: { x: 250, y: 40 }, label: 'current = stack.pop()' },
-        { position: { x: 250, y: 40 + NODE_MARGIN }, label: 'if (!visited.has(current))' },
-        { position: { x: 250, y: 40 + NODE_MARGIN * 2 }, label: 'visited.add(current)' },
-        { position: { x: 250, y: 40 + NODE_MARGIN * 3 }, label: 'result.push(current)' },
-        { position: { x: 250, y: 40 + NODE_MARGIN * 4 }, label: 'neighbors = graph[current]' },
-        { position: { x: 250, y: 40 + NODE_MARGIN * 5 }, label: 'for neighbor in neighbors' },
-        { position: { x: 250, y: 40 + NODE_MARGIN * 6 }, label: 'if (!visited.has(neighbor))' },
-        { position: { x: 250, y: 40 + NODE_MARGIN * 7 }, label: 'stack.push(neighbor)' },
+        { position: { x: 200, y: 60 }, label: 'current = stack.pop()' },
+        { position: { x: 200, y: 60 + NODE_MARGIN }, label: 'if (!visited.has(current))' },
+        { position: { x: 200, y: 60 + NODE_MARGIN * 2 }, label: 'visited.add(current)' },
+        { position: { x: 200, y: 60 + NODE_MARGIN * 3 }, label: 'result.push(current)' },
+        { position: { x: 200, y: 60 + NODE_MARGIN * 4 }, label: 'neighbors = graph[current]' },
+        { position: { x: 200, y: 60 + NODE_MARGIN * 5 }, label: 'for neighbor in neighbors' },
+        { position: { x: 200, y: 60 + NODE_MARGIN * 6 }, label: 'if (!visited.has(neighbor))' },
+        { position: { x: 200, y: 60 + NODE_MARGIN * 7 }, label: 'stack.push(neighbor)' },
       ];
 
       // While文セクションのサイズを動的計算
@@ -1616,7 +1617,7 @@ export default function FlowVisualization() {
       const popNode = createLogicNode({
         kind: 'normal',
         label: 'current = stack.pop()',
-        position: { x: 250, y: 40 },
+        position: { x: 200, y: 60 },
         instanceOfSectionId: whileSection.id,
       });
       popNode.parentNode = whileSection.id;
@@ -1625,7 +1626,7 @@ export default function FlowVisualization() {
       const visitedCheckIf = createLogicNode({
         kind: 'normal',
         label: 'if (!visited.has(current))',
-        position: { x: 250, y: 40 + NODE_MARGIN },
+        position: { x: 200, y: 60 + NODE_MARGIN },
         instanceOfSectionId: whileSection.id,
       });
       visitedCheckIf.parentNode = whileSection.id;
@@ -1634,7 +1635,7 @@ export default function FlowVisualization() {
       const markVisitedNode = createLogicNode({
         kind: 'normal',
         label: 'visited.add(current)',
-        position: { x: 250, y: 40 + NODE_MARGIN * 2 },
+        position: { x: 200, y: 60 + NODE_MARGIN * 2 },
         instanceOfSectionId: whileSection.id,
       });
       markVisitedNode.parentNode = whileSection.id;
@@ -1643,7 +1644,7 @@ export default function FlowVisualization() {
       const addToResultNode = createLogicNode({
         kind: 'normal',
         label: 'result.push(current)',
-        position: { x: 250, y: 40 + NODE_MARGIN * 3 },
+        position: { x: 200, y: 60 + NODE_MARGIN * 3 },
         instanceOfSectionId: whileSection.id,
       });
       addToResultNode.parentNode = whileSection.id;
@@ -1652,7 +1653,7 @@ export default function FlowVisualization() {
       const getNeighborsNode = createLogicNode({
         kind: 'normal',
         label: 'neighbors = graph[current]',
-        position: { x: 250, y: 40 + NODE_MARGIN * 4 },
+        position: { x: 200, y: 60 + NODE_MARGIN * 4 },
         instanceOfSectionId: whileSection.id,
       });
       getNeighborsNode.parentNode = whileSection.id;
@@ -1661,7 +1662,7 @@ export default function FlowVisualization() {
       const forLoopNode = createLogicNode({
         kind: 'normal',
         label: 'for neighbor in neighbors',
-        position: { x: 250, y: 40 + NODE_MARGIN * 5 },
+        position: { x: 200, y: 60 + NODE_MARGIN * 5 },
         instanceOfSectionId: whileSection.id,
       });
       forLoopNode.parentNode = whileSection.id;
@@ -1670,7 +1671,7 @@ export default function FlowVisualization() {
       const neighborCheckNode = createLogicNode({
         kind: 'normal',
         label: 'if (!visited.has(neighbor))',
-        position: { x: 250, y: 40 + NODE_MARGIN * 6 },
+        position: { x: 200, y: 60 + NODE_MARGIN * 6 },
         instanceOfSectionId: whileSection.id,
       });
       neighborCheckNode.parentNode = whileSection.id;
@@ -1679,7 +1680,7 @@ export default function FlowVisualization() {
       const pushNeighborNode = createLogicNode({
         kind: 'normal',
         label: 'stack.push(neighbor)',
-        position: { x: 250, y: 40 + NODE_MARGIN * 7 },
+        position: { x: 200, y: 60 + NODE_MARGIN * 7 },
         instanceOfSectionId: whileSection.id,
       });
       pushNeighborNode.parentNode = whileSection.id;
@@ -1689,7 +1690,7 @@ export default function FlowVisualization() {
       const returnNode = createLogicNode({
         kind: 'normal',
         label: 'return result',
-        position: { x: 250, y: 40 + NODE_MARGIN * 8 },
+        position: { x: 200, y: 60 + NODE_MARGIN * 6 },
         instanceOfSectionId: dfsFunction.id,
       });
       returnNode.parentNode = dfsFunction.id;
@@ -1699,13 +1700,13 @@ export default function FlowVisualization() {
       const resultReceiveNode = createLogicNode({
         kind: 'normal',
         label: 'result = DFS結果受け取り',
-        position: { x: flowCenter.x, y: whileSectionY + whileSectionSize.height + SECTION_TO_NODE_MARGIN },
+        position: { x: flowCenter.x, y: whileSectionY + whileSectionSize.height + SECTION_TO_NODE_MARGIN * 1.5 },
       });
 
       const endNode = createLogicNode({
         kind: 'end',
         label: 'End',
-        position: { x: flowCenter.x, y: whileSectionY + whileSectionSize.height + SECTION_TO_NODE_MARGIN + 100 },
+        position: { x: flowCenter.x, y: whileSectionY + whileSectionSize.height + SECTION_TO_NODE_MARGIN * 2 },
       });
 
       const newNodes = [
@@ -1787,7 +1788,7 @@ export default function FlowVisualization() {
           target: visitedCheckIf.id,
           sourceHandle: 'h-bottom',
           targetHandle: 'h-top',
-          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          data: { controlType: 'flow', condition: '', note: '① スタックからノードを取り出し', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
@@ -1799,7 +1800,7 @@ export default function FlowVisualization() {
           target: markVisitedNode.id,
           sourceHandle: 'h-bottom',
           targetHandle: 'h-top',
-          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          data: { controlType: 'flow', condition: '', note: '② 未訪問の場合、visitedに追加', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
@@ -1811,7 +1812,7 @@ export default function FlowVisualization() {
           target: addToResultNode.id,
           sourceHandle: 'h-bottom',
           targetHandle: 'h-top',
-          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          data: { controlType: 'flow', condition: '', note: '③ 結果リストに追加', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
@@ -1823,7 +1824,7 @@ export default function FlowVisualization() {
           target: getNeighborsNode.id,
           sourceHandle: 'h-bottom',
           targetHandle: 'h-top',
-          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          data: { controlType: 'flow', condition: '', note: '④ 隣接ノード取得', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
@@ -1835,7 +1836,7 @@ export default function FlowVisualization() {
           target: forLoopNode.id,
           sourceHandle: 'h-bottom',
           targetHandle: 'h-top',
-          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          data: { controlType: 'flow', condition: '', note: '⑤ 各隣接ノードをチェック', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
@@ -1847,7 +1848,7 @@ export default function FlowVisualization() {
           target: neighborCheckNode.id,
           sourceHandle: 'h-bottom',
           targetHandle: 'h-top',
-          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          data: { controlType: 'flow', condition: '', note: '⑤ 各隣接ノードが未訪問かチェック', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
@@ -1859,7 +1860,7 @@ export default function FlowVisualization() {
           target: pushNeighborNode.id,
           sourceHandle: 'h-bottom',
           targetHandle: 'h-top',
-          data: { controlType: 'flow', condition: '', note: '', validations: [], parallelOffset: 0 },
+          data: { controlType: 'flow', condition: '', note: '⑥ 未訪問ならスタックに追加', validations: [], parallelOffset: 0 },
           style: flowStyle,
           markerEnd: { type: MarkerType.ArrowClosed, color: flowStyle.color },
         },
