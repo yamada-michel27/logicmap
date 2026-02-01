@@ -1199,6 +1199,8 @@ export default function FlowVisualization() {
   const [edgeForm, setEdgeForm] = useState<EdgeFormState>({ ...EMPTY_EDGE_FORM });
   const [pendingStamp, setPendingStamp] = useState<StampType | null>(null);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportedText, setExportedText] = useState('');
   const [debugEvent, setDebugEvent] = useState<{
     type: string;
     x: number;
@@ -2013,6 +2015,149 @@ export default function FlowVisualization() {
       setIsSavingFlow(false);
     }
   }, [edges, fetchSavedFlows, nodes, saveName]);
+
+  const generateFlowText = useCallback(() => {
+    const lines: string[] = [];
+
+    // ヘッダー
+    lines.push('# Flow Structure Export');
+    lines.push('');
+
+    // ノード一覧
+    lines.push('## Nodes');
+    nodes.forEach(node => {
+      const nodeData = node.data as FlowNodeData;
+
+      if (node.type === 'logicNode') {
+        const data = nodeData as LogicNodeData;
+        const label = data.label || (data.nodeKind === 'start' ? 'Start' : data.nodeKind === 'end' ? 'End' : `Node-${data.seq}`);
+        lines.push(`- [${data.nodeKind}] ${label} (id: ${node.id})`);
+        if (data.condition) lines.push(`  - 条件: ${data.condition}`);
+        if (data.note) lines.push(`  - 補足: ${data.note}`);
+      } else if (node.type === 'sectionNode') {
+        const data = nodeData as SectionNodeData;
+        const label = data.label || CONTROL_STYLE[data.sectionType].label;
+        lines.push(`- [${data.sectionType}] ${label} (id: ${node.id})`);
+
+        if (data.sectionType === 'function') {
+          if (data.functionArgs && data.functionArgs.length > 0) {
+            lines.push(`  - 引数: ${data.functionArgs.map(arg => `${arg.name}: ${arg.type}`).join(', ')}`);
+          }
+          if (data.functionReturnType) lines.push(`  - 返り値型: ${data.functionReturnType}`);
+          if (data.functionReturnValue) lines.push(`  - 返り値: ${data.functionReturnValue}`);
+        } else if (data.sectionType === 'class') {
+          if (data.classConstructorArgs && data.classConstructorArgs.length > 0) {
+            lines.push(`  - コンストラクタ: ${data.classConstructorArgs.map(arg => `${arg.name}: ${arg.type}`).join(', ')}`);
+          }
+          if (data.classMembers && data.classMembers.length > 0) {
+            lines.push(`  - メンバ: ${data.classMembers.map(member => `${member.name}: ${member.type}`).join(', ')}`);
+          }
+          if (data.classMethods && data.classMethods.length > 0) {
+            data.classMethods.forEach((method, i) => {
+              lines.push(`  - メソッド${i + 1}: ${method.name}(${method.args.map(arg => `${arg.name}: ${arg.type}`).join(', ')}) -> ${method.returns}`);
+              if (method.note) lines.push(`    - 補足: ${method.note}`);
+            });
+          }
+        } else if (data.sectionType === 'interface') {
+          if (data.interfaceMembers && data.interfaceMembers.length > 0) {
+            lines.push(`  - プロパティ: ${data.interfaceMembers.map(member => `${member.name}: ${member.type}`).join(', ')}`);
+          }
+          if (data.interfaceMethods && data.interfaceMethods.length > 0) {
+            data.interfaceMethods.forEach((method, i) => {
+              lines.push(`  - メソッド${i + 1}: ${method.name}(${method.args.map(arg => `${arg.name}: ${arg.type}`).join(', ')}) -> ${method.returns}`);
+            });
+          }
+        } else if (data.sectionType === 'while' || data.sectionType === 'for') {
+          if (data.loopCondition) lines.push(`  - 条件: ${data.loopCondition}`);
+        } else if (data.sectionType === 'catch') {
+          if (data.catchException) lines.push(`  - 例外: ${data.catchException}`);
+        }
+
+        if (data.note) lines.push(`  - 補足: ${data.note}`);
+        if (data.validations && data.validations.length > 0) {
+          lines.push(`  - バリデーション:`);
+          data.validations.forEach(validation => {
+            lines.push(`    - ${validation.target}: ${validation.rule} (${validation.message})`);
+          });
+        }
+      } else if (node.type === 'memoNode') {
+        const data = nodeData as MemoNodeData;
+        lines.push(`- [memo] ${data.text.replace(/\n/g, ' ')} (id: ${node.id})`);
+      } else if (node.type === 'stampNode') {
+        const data = nodeData as StampNodeData;
+        const stamp = STAMP_OPTIONS.find(s => s.id === data.stamp);
+        lines.push(`- [stamp] ${stamp?.emoji} ${stamp?.label} (id: ${node.id})`);
+      }
+    });
+
+    lines.push('');
+
+    // エッジ一覧
+    lines.push('## Edges');
+    edges.forEach(edge => {
+      const data = edge.data as LogicEdgeData;
+      const sourceNode = nodes.find(n => n.id === edge.source);
+      const targetNode = nodes.find(n => n.id === edge.target);
+      const sourceName = sourceNode ? getNodeDisplayLabel(sourceNode) : edge.source;
+      const targetName = targetNode ? getNodeDisplayLabel(targetNode) : edge.target;
+
+      const controlLabel = data.controlType === 'flow' ? '通常' : CONTROL_STYLE[data.controlType]?.label || data.controlType;
+      lines.push(`- [${controlLabel}] ${sourceName} → ${targetName}`);
+
+      if (data.condition) lines.push(`  - 条件: ${data.condition}`);
+      if (data.note) lines.push(`  - 補足: ${data.note}`);
+      if (data.validations && data.validations.length > 0) {
+        lines.push(`  - バリデーション:`);
+        data.validations.forEach(validation => {
+          lines.push(`    - ${validation.target}: ${validation.rule} (${validation.message})`);
+        });
+      }
+    });
+
+    lines.push('');
+    lines.push('---');
+    lines.push('Generated by LogicMap Flow Visualization Tool');
+
+    return lines.join('\n');
+  }, [nodes, edges]);
+
+  const openExportModal = useCallback(() => {
+    const text = generateFlowText();
+    setExportedText(text);
+    setIsExportModalOpen(true);
+  }, [generateFlowText]);
+
+  const closeExportModal = useCallback(() => {
+    setIsExportModalOpen(false);
+    setExportedText('');
+  }, []);
+
+  const copyToClipboard = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(exportedText);
+      alert('クリップボードにコピーしました！');
+    } catch (err) {
+      console.error('コピーに失敗しました:', err);
+      alert('コピーに失敗しました');
+    }
+  }, [exportedText]);
+
+  const downloadFlowStructure = useCallback(() => {
+    try {
+      const blob = new Blob([exportedText], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `flow-structure-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('ダウンロードに失敗しました:', err);
+      alert('ダウンロードに失敗しました');
+    }
+  }, [exportedText]);
 
   const deleteSavedFlow = useCallback(
     async (flowId: string) => {
@@ -4617,6 +4762,50 @@ export default function FlowVisualization() {
     );
   }, [isTemplateModalOpen, applyTemplate, closeTemplateModal]);
 
+  const exportModalContent = useMemo(() => {
+    if (!isExportModalOpen) return null;
+    return (
+      <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">フロー構造エクスポート</h3>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                onClick={copyToClipboard}
+              >
+                📋 コピー
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-100"
+                onClick={downloadFlowStructure}
+              >
+                💾 ダウンロード
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                onClick={closeExportModal}
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+          <div className="mt-4">
+            <textarea
+              value={exportedText}
+              readOnly
+              className="w-full h-96 p-3 text-xs font-mono bg-gray-50 border border-gray-300 rounded-md resize-none"
+              style={{ whiteSpace: 'pre' }}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }, [isExportModalOpen, exportedText, copyToClipboard, downloadFlowStructure, closeExportModal]);
+
   return (
     <div
       className="relative h-full w-full bg-gradient-to-br from-slate-50 via-slate-100 to-sky-50"
@@ -4693,6 +4882,13 @@ export default function FlowVisualization() {
           </button>
           <button
             type="button"
+            className="rounded-md border border-green-200 bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 hover:bg-green-100"
+            onClick={openExportModal}
+          >
+            📋 エクスポート
+          </button>
+          <button
+            type="button"
             className="rounded-md border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100"
             onClick={openMemoCreateModal}
           >
@@ -4763,6 +4959,7 @@ export default function FlowVisualization() {
       {nodeModalContent}
       {nodeDeleteContent}
       {templateModalContent}
+      {exportModalContent}
     </div>
   );
 }
