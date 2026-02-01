@@ -2182,8 +2182,6 @@ export default function FlowVisualization() {
     setEdges([]);
     nextNodeSeq.current = 1;
     nextEdgeSeq.current = 1;
-    setCurrentFlowId(null);
-    setCurrentFlowName(null);
     setIsClearModalOpen(false);
   }, [setNodes, setEdges]);
 
