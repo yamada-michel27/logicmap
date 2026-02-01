@@ -37,6 +37,8 @@ func (h *FlowHandler) HandleFlowByID(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		h.getFlow(w, r, flowID)
+	case http.MethodPut:
+		h.updateFlow(w, r, flowID)
 	case http.MethodDelete:
 		h.deleteFlow(w, r, flowID)
 	default:
@@ -117,6 +119,44 @@ func (h *FlowHandler) createFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, flowSummaryResponse{
+		ID:        result.ID,
+		Name:      result.Name,
+		CreatedAt: result.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: result.UpdatedAt.Format(time.RFC3339),
+	})
+}
+
+type updateFlowRequest struct {
+	Snapshot json.RawMessage `json:"snapshot"`
+}
+
+func (h *FlowHandler) updateFlow(w http.ResponseWriter, r *http.Request, flowID string) {
+	userID := getUserID(r)
+	if userID == "" {
+		writeError(w, http.StatusBadRequest, "missing_user_id")
+		return
+	}
+	var req updateFlowRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 10<<20))
+	if err := decoder.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_body")
+		return
+	}
+	ctx, cancel := contextWithTimeout(r, 5*time.Second)
+	defer cancel()
+	result, err := h.service.Update(ctx, userID, flowID, req.Snapshot)
+	if err != nil {
+		switch err {
+		case usecase.ErrNotFound:
+			writeError(w, http.StatusNotFound, "not_found")
+		case usecase.ErrInvalidInput:
+			writeError(w, http.StatusBadRequest, "invalid_input")
+		default:
+			writeError(w, http.StatusInternalServerError, "update_failed")
+		}
+		return
+	}
+	writeJSON(w, http.StatusOK, flowSummaryResponse{
 		ID:        result.ID,
 		Name:      result.Name,
 		CreatedAt: result.CreatedAt.Format(time.RFC3339),

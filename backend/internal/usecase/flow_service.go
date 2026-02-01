@@ -59,6 +59,20 @@ func (s *FlowService) Get(ctx context.Context, userID, flowID string) (*flow.Flo
 	return item, nil
 }
 
+func (s *FlowService) Update(ctx context.Context, userID, flowID string, snapshot json.RawMessage) (*flow.Flow, error) {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(flowID) == "" || len(snapshot) == 0 {
+		return nil, ErrInvalidInput
+	}
+	item, err := s.repo.UpdateByID(ctx, userID, flowID, snapshot)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil {
+		return nil, ErrNotFound
+	}
+	return item, nil
+}
+
 func (s *FlowService) Delete(ctx context.Context, userID, flowID string) error {
 	if strings.TrimSpace(userID) == "" || strings.TrimSpace(flowID) == "" {
 		return ErrInvalidInput

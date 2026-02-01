@@ -104,6 +104,39 @@ func (r *FlowPostgresRepository) GetByID(
 	return &item, nil
 }
 
+func (r *FlowPostgresRepository) UpdateByID(
+	ctx context.Context,
+	userID, flowID string,
+	snapshot json.RawMessage,
+) (*flow.Flow, error) {
+	row := r.db.QueryRowContext(
+		ctx,
+		`UPDATE flows
+		 SET snapshot = $3, updated_at = CURRENT_TIMESTAMP
+		 WHERE id = $1 AND user_id = $2
+		 RETURNING id, user_id, name, created_at, updated_at`,
+		flowID,
+		userID,
+		snapshot,
+	)
+	var item flow.Flow
+	err := row.Scan(
+		&item.ID,
+		&item.UserID,
+		&item.Name,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	item.Snapshot = snapshot
+	return &item, nil
+}
+
 func (r *FlowPostgresRepository) DeleteByID(
 	ctx context.Context,
 	userID, flowID string,
