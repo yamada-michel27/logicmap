@@ -2252,7 +2252,8 @@ export default function FlowVisualization() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `flow-structure-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+      const fileName = currentFlowName || 'flow-structure';
+      link.download = `${fileName}.txt`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -2261,7 +2262,7 @@ export default function FlowVisualization() {
       console.error('ダウンロードに失敗しました:', err);
       alert('ダウンロードに失敗しました');
     }
-  }, [exportedText]);
+  }, [exportedText, currentFlowName]);
 
   const deleteSavedFlow = useCallback(
     async (flowId: string) => {
