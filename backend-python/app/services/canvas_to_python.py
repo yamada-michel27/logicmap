@@ -23,6 +23,19 @@ class CanvasToPythonConverter:
             elif node.type == "typeNode":
                 type_nodes.append(node)
 
+        # Phase7: 親子関係を考慮したネスト構造の構築
+        root_sections = []  # ルート（親を持たない）セクション
+        nested_sections = {}  # 親セクションIDをキーとした子セクションのマップ
+
+        for node in section_nodes:
+            parent_node = getattr(node, 'parentNode', None) if hasattr(node, 'parentNode') else node.position.get('parentNode') if hasattr(node.position, 'get') else None
+            if parent_node:
+                if parent_node not in nested_sections:
+                    nested_sections[parent_node] = []
+                nested_sections[parent_node].append(node)
+            else:
+                root_sections.append(node)
+
         # コード生成
         code_lines = []
 
@@ -72,33 +85,94 @@ class CanvasToPythonConverter:
 
             code_lines.append("")
 
-        # クラス定義
-        for node in section_nodes:
-            data = node.data
-            section_type = data.get('sectionType') if isinstance(data, dict) else getattr(data, 'sectionType', None)
-            if section_type == 'class':
-                code_lines.extend(self._generate_class(node, data))
-                code_lines.append("")
-
-        # 関数定義
-        for node in section_nodes:
-            data = node.data
-            section_type = data.get('sectionType') if isinstance(data, dict) else getattr(data, 'sectionType', None)
-            if section_type == 'function':
-                code_lines.extend(self._generate_function(node, data, snapshot))
-                code_lines.append("")
-
-        # メイン処理
-        main_nodes = []
-        for n in section_nodes:
-            data = n.data
-            section_type = data.get('sectionType') if isinstance(data, dict) else getattr(data, 'sectionType', None)
-            if section_type == 'main':
-                main_nodes.append(n)
-        if main_nodes:
-            code_lines.extend(self._generate_main(main_nodes[0], snapshot))
+        # Phase7: ルートセクションをネスト構造を考慮して処理
+        self._process_sections(root_sections, nested_sections, code_lines, snapshot, indent_level=0)
 
         return "\n".join(code_lines).strip()
+
+    def _process_sections(self, sections: List[StoredNode], nested_sections: Dict, code_lines: List[str], snapshot: FlowSnapshot, indent_level: int = 0):
+        """セクションをネスト構造を考慮して処理"""
+        for node in sections:
+            data = node.data
+            section_type = data.get('sectionType') if isinstance(data, dict) else getattr(data, 'sectionType', None)
+
+            if section_type == 'class':
+                class_lines = self._generate_class(node, data)
+                # インデントを適用
+                if indent_level > 0:
+                    class_lines = [f"{'    ' * indent_level}{line}" if line.strip() else line for line in class_lines]
+                code_lines.extend(class_lines)
+
+                # 子セクションがあれば処理
+                if node.id in nested_sections:
+                    self._process_sections(nested_sections[node.id], nested_sections, code_lines, snapshot, indent_level + 1)
+
+                code_lines.append("")
+
+            elif section_type == 'function':
+                function_lines = self._generate_function(node, data, snapshot)
+                # インデントを適用
+                if indent_level > 0:
+                    function_lines = [f"{'    ' * indent_level}{line}" if line.strip() else line for line in function_lines]
+                code_lines.extend(function_lines)
+
+                # 子セクションがあれば処理
+                if node.id in nested_sections:
+                    self._process_sections(nested_sections[node.id], nested_sections, code_lines, snapshot, indent_level + 1)
+
+                code_lines.append("")
+
+            elif section_type == 'main':
+                main_lines = self._generate_main(node, snapshot)
+                # インデントを適用
+                if indent_level > 0:
+                    main_lines = [f"{'    ' * indent_level}{line}" if line.strip() else line for line in main_lines]
+                code_lines.extend(main_lines)
+
+                # 子セクションがあれば処理
+                if node.id in nested_sections:
+                    self._process_sections(nested_sections[node.id], nested_sections, code_lines, snapshot, indent_level + 1)
+
+            elif section_type in ['if', 'elif', 'else', 'for', 'while']:
+                # Phase7: 制御構文セクションの処理
+                control_lines = self._generate_control_section(node, data, section_type, indent_level)
+                code_lines.extend(control_lines)
+
+                # 子セクションがあれば処理
+                if node.id in nested_sections:
+                    self._process_sections(nested_sections[node.id], nested_sections, code_lines, snapshot, indent_level + 1)
+
+    def _generate_control_section(self, node: StoredNode, data, section_type: str, indent_level: int) -> List[str]:
+        """制御構文セクション（if/elif/else/for/while）を生成"""
+        lines = []
+        indent = "    " * indent_level
+
+        def get_value(key, default=None):
+            if isinstance(data, dict):
+                return data.get(key, default)
+            return getattr(data, key, default)
+
+        label = get_value('label', f'{section_type}_block')
+
+        if section_type == 'if':
+            condition = label if label != 'if_block' else 'condition'
+            lines.append(f"{indent}if {condition}:")
+        elif section_type == 'elif':
+            condition = label if label != 'elif_block' else 'condition'
+            lines.append(f"{indent}elif {condition}:")
+        elif section_type == 'else':
+            lines.append(f"{indent}else:")
+        elif section_type == 'for':
+            loop_condition = get_value('loopCondition', 'item in items')
+            lines.append(f"{indent}for {loop_condition}:")
+        elif section_type == 'while':
+            loop_condition = get_value('loopCondition', 'condition')
+            lines.append(f"{indent}while {loop_condition}:")
+
+        # 子要素がない場合はpassを追加
+        lines.append(f"{indent}    pass  # TODO: 実装を追加")
+
+        return lines
 
     def _generate_class(self, node: StoredNode, data) -> List[str]:
         """クラス定義を生成"""
