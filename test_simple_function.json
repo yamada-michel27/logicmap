@@ -1,0 +1,7 @@
+{
+  "code": "def simple_func(x: int) -> int:\n    result = x + 1\n    return result",
+  "options": {
+    "include_comments": true,
+    "include_docstrings": true
+  }
+}

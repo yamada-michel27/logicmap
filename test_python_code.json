@@ -1,0 +1,7 @@
+{
+  "code": "def add_numbers(a: int, b: int) -> int:\n    \"\"\"2つの数値を足し算する関数\"\"\"\n    result = a + b\n    return result\n\ndef binary_search(arr: list, target: int) -> int:\n    \"\"\"配列内で要素を二分探索する\"\"\"\n    left = 0\n    right = len(arr) - 1\n    \n    while left <= right:\n        mid = (left + right) // 2\n        if arr[mid] == target:\n            return mid\n        elif arr[mid] < target:\n            left = mid + 1\n        else:\n            right = mid - 1\n    \n    return -1\n\nif __name__ == \"__main__\":\n    nums = [1, 2, 3, 4, 5]\n    print(add_numbers(10, 20))\n    result = binary_search(nums, 4)\n    print(f\"Found at index: {result}\")",
+  "options": {
+    "include_comments": true,
+    "include_docstrings": true
+  }
+}

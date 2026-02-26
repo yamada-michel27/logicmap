@@ -1,0 +1,29 @@
+{
+  "snapshot": {
+    "version": 1,
+    "nodes": [
+      {
+        "id": "section-7",
+        "type": "sectionNode",
+        "position": {"x": 100, "y": 100},
+        "data": {
+          "seq": 7,
+          "label": "binary_search",
+          "sectionType": "function",
+          "functionArgs": [
+            {"name": "arr", "type": ""},
+            {"name": "target", "type": ""}
+          ],
+          "functionReturnValue": "見つかった場合:mid, 見つからなかった場合:-1"
+        }
+      }
+    ],
+    "edges": [],
+    "nextNodeSeq": 8,
+    "nextEdgeSeq": 1
+  },
+  "options": {
+    "include_comments": true,
+    "include_docstrings": true
+  }
+}
