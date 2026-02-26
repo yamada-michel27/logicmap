@@ -1,0 +1,61 @@
+{
+  "snapshot": {
+    "version": 1,
+    "nodes": [
+      {
+        "id": "node-1",
+        "type": "sectionNode",
+        "position": {"x": 100, "y": 100},
+        "data": {
+          "label": "calculate_sum",
+          "sectionType": "function",
+          "seq": 1,
+          "note": "2つの数値を足し算する関数",
+          "functionArgs": [
+            {"name": "a", "type": "int"},
+            {"name": "b", "type": "int"}
+          ],
+          "functionReturnType": "int",
+          "functionReturnValue": "a + b"
+        }
+      },
+      {
+        "id": "node-2",
+        "type": "sectionNode",
+        "position": {"x": 100, "y": 300},
+        "data": {
+          "label": "Person",
+          "sectionType": "class",
+          "seq": 2,
+          "note": "人物を表すクラス",
+          "classConstructorArgs": [
+            {"name": "name", "type": "str"},
+            {"name": "age", "type": "int"}
+          ],
+          "classMethods": [
+            {
+              "name": "greet",
+              "args": [],
+              "returns": "str",
+              "note": "挨拶メッセージを返す"
+            }
+          ]
+        }
+      },
+      {
+        "id": "node-3",
+        "type": "sectionNode",
+        "position": {"x": 100, "y": 500},
+        "data": {
+          "label": "メイン処理",
+          "sectionType": "main",
+          "seq": 3,
+          "note": "プログラムのエントリーポイント"
+        }
+      }
+    ],
+    "edges": [],
+    "nextNodeSeq": 4,
+    "nextEdgeSeq": 1
+  }
+}

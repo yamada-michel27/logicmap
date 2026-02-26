@@ -1249,6 +1249,12 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [isPythonModalOpen, setIsPythonModalOpen] = useState(false);
+  const [pythonCode, setPythonCode] = useState('');
+  const [isPythonGenerating, setIsPythonGenerating] = useState(false);
+  const [isPythonImportModalOpen, setIsPythonImportModalOpen] = useState(false);
+  const [pythonInputCode, setPythonInputCode] = useState('');
+  const [isCanvasGenerating, setIsCanvasGenerating] = useState(false);
   const [currentFlowId, setCurrentFlowId] = useState<string | null>(null);
   const [currentFlowName, setCurrentFlowName] = useState<string | null>(null);
   const [debugEvent, setDebugEvent] = useState<{
@@ -2373,6 +2379,140 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
   const closeImportModal = useCallback(() => {
     setIsImportModalOpen(false);
     setImportText('');
+  }, []);
+
+  // Pythonコード生成関数
+  const generatePythonCode = useCallback(async () => {
+    setIsPythonGenerating(true);
+    setPythonCode('');
+    setIsPythonModalOpen(true);
+
+    try {
+      // FlowSnapshotを作成
+      const snapshot: FlowSnapshot = {
+        version: 1,
+        nodes: nodes.map(node => ({
+          id: node.id,
+          type: node.type,
+          position: node.position,
+          data: node.data,
+          width: node.width,
+          height: node.height
+        })),
+        edges: edges.map(edge => ({
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          data: edge.data
+        })),
+        nextNodeSeq: nextNodeSeq.current,
+        nextEdgeSeq: nextEdgeSeq.current
+      };
+
+      // Python サービスにリクエスト
+      const pythonServiceUrl = process.env.NEXT_PUBLIC_PYTHON_SERVICE_URL || 'http://localhost:8001';
+      const response = await fetch(`${pythonServiceUrl}/api/v1/canvas-to-python`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          snapshot: snapshot,
+          options: {
+            include_comments: true,
+            include_docstrings: true
+          }
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        setPythonCode(data.code);
+      } else {
+        setPythonCode(`// エラーが発生しました\n${data.error || '不明なエラー'}`);
+      }
+    } catch (error) {
+      console.error('Python code generation failed:', error);
+      setPythonCode(`// エラーが発生しました\n${error instanceof Error ? error.message : '不明なエラー'}`);
+    } finally {
+      setIsPythonGenerating(false);
+    }
+  }, [nodes, edges]);
+
+  const closePythonModal = useCallback(() => {
+    setIsPythonModalOpen(false);
+    setPythonCode('');
+    setIsPythonGenerating(false);
+  }, []);
+
+  // PythonコードからCanvas生成
+  const generateCanvasFromPython = useCallback(async () => {
+    setIsCanvasGenerating(true);
+
+    try {
+      // Python サービスにリクエスト
+      const pythonServiceUrl = process.env.NEXT_PUBLIC_PYTHON_SERVICE_URL || 'http://localhost:8001';
+      const response = await fetch(`${pythonServiceUrl}/api/v1/python-to-canvas`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          code: pythonInputCode,
+          options: {
+            include_comments: true,
+            include_docstrings: true
+          }
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        const snapshot = data.snapshot;
+
+        // 現在のキャンバスをクリア
+        setNodes([]);
+        setEdges([]);
+
+        // 新しいノードとエッジをセット
+        const newNodes = snapshot.nodes.map((node: any) => ({
+          ...node,
+          position: node.position,
+        }));
+
+        const newEdges = snapshot.edges.map((edge: any) => ({
+          ...edge,
+          type: 'logicEdge',
+          animated: false,
+        }));
+
+        setNodes(newNodes);
+        setEdges(newEdges);
+
+        // シーケンス番号を更新
+        nextNodeSeq.current = snapshot.nextNodeSeq;
+        nextEdgeSeq.current = snapshot.nextEdgeSeq;
+
+        // モーダルを閉じる
+        setIsPythonImportModalOpen(false);
+        setPythonInputCode('');
+      } else {
+        alert(`Canvas生成に失敗しました: ${data.error || '不明なエラー'}`);
+      }
+    } catch (error) {
+      console.error('Canvas generation failed:', error);
+      alert(`Canvas生成に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
+    } finally {
+      setIsCanvasGenerating(false);
+    }
+  }, [pythonInputCode]);
+
+  const closePythonImportModal = useCallback(() => {
+    setIsPythonImportModalOpen(false);
+    setPythonInputCode('');
+    setIsCanvasGenerating(false);
   }, []);
 
   // Mermaidもどきテキストからノードとエッジを解析する関数
@@ -5610,6 +5750,137 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     );
   }, [isExportModalOpen, exportedText, isCopied, copyToClipboard, downloadFlowStructure, closeExportModal]);
 
+  const pythonModalContent = useMemo(() => {
+    if (!isPythonModalOpen) return null;
+
+    const copyPythonCode = () => {
+      navigator.clipboard.writeText(pythonCode).then(() => {
+        setIsCopied(true);
+        setTimeout(() => setIsCopied(false), 2000);
+      }).catch((err) => {
+        console.error('コピーに失敗しました:', err);
+      });
+    };
+
+    const downloadPythonFile = () => {
+      const blob = new Blob([pythonCode], { type: 'text/x-python' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'generated_code.py';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    };
+
+    return (
+      <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-4xl max-h-[80vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">🐍 生成されたPythonコード</h3>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className={`rounded-md border px-3 py-1 text-xs font-semibold ${
+                  isCopied
+                    ? 'border-green-200 bg-green-50 text-green-700'
+                    : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                }`}
+                onClick={copyPythonCode}
+                disabled={isPythonGenerating}
+              >
+                {isCopied ? '✓ コピー済み' : '📋 コピー'}
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-green-200 bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 hover:bg-green-100"
+                onClick={downloadPythonFile}
+                disabled={isPythonGenerating || !pythonCode}
+              >
+                💾 ダウンロード
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                onClick={closePythonModal}
+              >
+                ✕ 閉じる
+              </button>
+            </div>
+          </div>
+          {isPythonGenerating ? (
+            <div className="flex items-center justify-center p-8">
+              <div className="text-center">
+                <div className="animate-spin h-8 w-8 border-4 border-orange-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                <p className="text-gray-600">Pythonコードを生成中...</p>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4">
+              <pre className="h-96 overflow-auto rounded-md border border-gray-300 bg-gray-50 p-4 text-sm font-mono">
+                <code className="text-gray-800">{pythonCode}</code>
+              </pre>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }, [isPythonModalOpen, pythonCode, isPythonGenerating, isCopied, closePythonModal]);
+
+  const pythonImportModalContent = useMemo(() => {
+    if (!isPythonImportModalOpen) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="w-full max-w-4xl rounded-lg bg-white p-6 shadow-lg max-h-[90vh] overflow-y-auto">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">
+              📝 PythonコードからCanvas生成
+            </h3>
+            <button
+              type="button"
+              className="rounded-md p-2 text-gray-500 hover:text-gray-700"
+              onClick={closePythonImportModal}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="mb-4">
+            <p className="mb-3 text-sm text-gray-600">
+              Pythonコードを入力してCanvasを生成します。
+            </p>
+            <textarea
+              value={pythonInputCode}
+              onChange={(e) => setPythonInputCode(e.target.value)}
+              placeholder="def example_function(a: int, b: int) -> int:&#10;    result = a + b&#10;    return result&#10;&#10;if __name__ == '__main__':&#10;    print(example_function(1, 2))"
+              className="w-full h-96 rounded-md border border-gray-300 p-3 font-mono text-sm resize-none focus:border-blue-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              onClick={closePythonImportModal}
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              className="rounded-md bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700 disabled:opacity-50"
+              onClick={generateCanvasFromPython}
+              disabled={!pythonInputCode.trim() || isCanvasGenerating}
+            >
+              {isCanvasGenerating ? '生成中...' : 'Canvas生成'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }, [isPythonImportModalOpen, pythonInputCode, isCanvasGenerating, closePythonImportModal, generateCanvasFromPython]);
+
   const importModalContent = useMemo(() => {
     if (!isImportModalOpen) return null;
     return (
@@ -5818,6 +6089,20 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
           </button>
           <button
             type="button"
+            className="rounded-md border border-orange-200 bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 hover:bg-orange-100"
+            onClick={generatePythonCode}
+          >
+            🐍 Python生成
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-100"
+            onClick={() => setIsPythonImportModalOpen(true)}
+          >
+            📝 Python→Canvas
+          </button>
+          <button
+            type="button"
             className="rounded-md border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
             onClick={openClearModal}
           >
@@ -5897,6 +6182,8 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
       {nodeDeleteContent}
       {templateModalContent}
       {exportModalContent}
+      {pythonModalContent}
+      {pythonImportModalContent}
       {importModalContent}
       {clearModalContent}
     </div>

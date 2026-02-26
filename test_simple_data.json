@@ -1,0 +1,23 @@
+{
+  "snapshot": {
+    "version": 1,
+    "nodes": [
+      {
+        "id": "test-1",
+        "type": "sectionNode",
+        "position": {"x": 100, "y": 100},
+        "data": {
+          "label": "test_function",
+          "sectionType": "function",
+          "seq": 1
+        }
+      }
+    ],
+    "edges": [],
+    "nextNodeSeq": 2,
+    "nextEdgeSeq": 1
+  },
+  "options": {
+    "include_comments": true
+  }
+}

@@ -47,6 +47,24 @@ services:
     networks:
       - logicmap-network
 
+  python-service:
+    build:
+      context: ./backend-python
+      dockerfile: Dockerfile
+    container_name: logicmap-python-service
+    ports:
+      - "${PYTHON_SERVICE_PORT}:8001"
+    environment:
+      - PORT=8001
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - logicmap-network
+
   frontend:
     build:
       context: ./frontend
@@ -59,9 +77,12 @@ services:
     environment:
       - API_BASE_URL=${API_BASE_URL}
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+      - PYTHON_SERVICE_URL=${PYTHON_SERVICE_URL}
       - NODE_ENV=${NODE_ENV}
     depends_on:
       backend:
+        condition: service_healthy
+      python-service:
         condition: service_healthy
     networks:
       - logicmap-network

@@ -1,0 +1,50 @@
+{
+  "snapshot": {
+    "version": 1,
+    "nodes": [
+      {
+        "id": "f56a96fd-275d-4f13-a5a3-2b6d0e03cf4d",
+        "type": "sectionNode",
+        "position": {"x": 100.0, "y": 100.0},
+        "data": {
+          "label": "add_numbers",
+          "sectionType": "function",
+          "seq": 1,
+          "note": "2つの数値を足し算する関数",
+          "functionArgs": [
+            {"name": "a", "type": "int"},
+            {"name": "b", "type": "int"}
+          ],
+          "functionReturnType": "int"
+        }
+      },
+      {
+        "id": "b9ae6dd7-979d-42ca-a79b-c96ed7ca1535",
+        "type": "logicNode",
+        "position": {"x": 150.0, "y": 150.0},
+        "data": {
+          "label": "result = a + b",
+          "nodeKind": "normal",
+          "seq": 2
+        }
+      },
+      {
+        "id": "10c5ccd6-12e0-4819-8390-ec957e57a326",
+        "type": "logicNode",
+        "position": {"x": 150.0, "y": 190.0},
+        "data": {
+          "label": "return result",
+          "nodeKind": "normal",
+          "seq": 3
+        }
+      }
+    ],
+    "edges": [],
+    "nextNodeSeq": 4,
+    "nextEdgeSeq": 1
+  },
+  "options": {
+    "include_comments": true,
+    "include_docstrings": true
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "code": "# Generated from LogicMap Canvas\n\ndef add_numbers(a: int, b: int) -> int:\n    \"\"\"2つの数値を足し算する関数\"\"\"\n    # Implementation based on logic nodes\n    result = a + b\n    return result",
+  "options": {
+    "include_comments": true,
+    "include_docstrings": true
+  }
+}

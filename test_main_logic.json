@@ -1,0 +1,80 @@
+{
+  "snapshot": {
+    "version": 1,
+    "nodes": [
+      {
+        "id": "func-1",
+        "type": "sectionNode",
+        "position": {"x": 100, "y": 100},
+        "data": {
+          "seq": 1,
+          "label": "add_numbers",
+          "sectionType": "function",
+          "functionArgs": [
+            {"name": "a", "type": "int"},
+            {"name": "b", "type": "int"}
+          ],
+          "functionReturnType": "int"
+        }
+      },
+      {
+        "id": "main-1",
+        "type": "sectionNode",
+        "position": {"x": 100, "y": 300},
+        "data": {
+          "seq": 2,
+          "label": "",
+          "sectionType": "main",
+          "note": "プログラムのエントリーポイント"
+        }
+      },
+      {
+        "id": "logic-1",
+        "type": "logicNode",
+        "position": {"x": 150, "y": 50},
+        "data": {
+          "seq": 3,
+          "label": "result = a + b",
+          "nodeKind": "normal"
+        }
+      },
+      {
+        "id": "logic-2",
+        "type": "logicNode",
+        "position": {"x": 150, "y": 80},
+        "data": {
+          "seq": 4,
+          "label": "return result",
+          "nodeKind": "normal"
+        }
+      },
+      {
+        "id": "logic-3",
+        "type": "logicNode",
+        "position": {"x": 150, "y": 350},
+        "data": {
+          "seq": 5,
+          "label": "nums = [1, 2, 3, 4, 5]",
+          "nodeKind": "normal"
+        }
+      },
+      {
+        "id": "logic-4",
+        "type": "logicNode",
+        "position": {"x": 150, "y": 380},
+        "data": {
+          "seq": 6,
+          "label": "print(add_numbers(10, 20))",
+          "nodeKind": "normal"
+        }
+      }
+    ],
+    "edges": [],
+    "nextNodeSeq": 7,
+    "nextEdgeSeq": 1
+  },
+  "options": {
+    "include_comments": true,
+    "include_docstrings": true
+  }
+}
