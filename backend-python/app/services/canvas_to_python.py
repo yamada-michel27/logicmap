@@ -13,12 +13,15 @@ class CanvasToPythonConverter:
         # ノードを種類別に分類
         section_nodes = []
         logic_nodes = []
+        type_nodes = []
 
         for node in snapshot.nodes:
             if node.type == "sectionNode":
                 section_nodes.append(node)
             elif node.type == "logicNode":
                 logic_nodes.append(node)
+            elif node.type == "typeNode":
+                type_nodes.append(node)
 
         # コード生成
         code_lines = []
@@ -26,6 +29,47 @@ class CanvasToPythonConverter:
         # インポート文（必要に応じて）
         if self.include_comments:
             code_lines.append("# Generated from LogicMap Canvas")
+            code_lines.append("")
+
+        # 型ノードをコメント/変数宣言として出力
+        if type_nodes and self.include_comments:
+            code_lines.append("# Types and variables used in this module:")
+            for node in type_nodes:
+                data = node.data
+                python_type = data.get('pythonType') if isinstance(data, dict) else getattr(data, 'pythonType', None)
+                variable_name = data.get('variableName') if isinstance(data, dict) else getattr(data, 'variableName', None)
+                initial_value = data.get('initialValue') if isinstance(data, dict) else getattr(data, 'initialValue', None)
+                element_type = data.get('elementType') if isinstance(data, dict) else getattr(data, 'elementType', None)
+                key_type = data.get('keyType') if isinstance(data, dict) else getattr(data, 'keyType', None)
+                value_type = data.get('valueType') if isinstance(data, dict) else getattr(data, 'valueType', None)
+                inner_type = data.get('innerType') if isinstance(data, dict) else getattr(data, 'innerType', None)
+                union_types = data.get('unionTypes') if isinstance(data, dict) else getattr(data, 'unionTypes', None)
+                note = data.get('note') if isinstance(data, dict) else getattr(data, 'note', None)
+
+                # 型文字列を生成
+                type_str = python_type
+                if python_type in ['list', 'tuple', 'set'] and element_type:
+                    type_str = f"{python_type}[{element_type}]"
+                elif python_type == 'dict' and key_type and value_type:
+                    type_str = f"dict[{key_type}, {value_type}]"
+                elif python_type == 'Optional' and inner_type:
+                    type_str = f"Optional[{inner_type}]"
+                elif python_type == 'Union' and union_types:
+                    type_str = f"Union[{', '.join(union_types)}]"
+
+                # 変数宣言を生成（実際のコードとしても使用可能）
+                if variable_name:
+                    if initial_value:
+                        code_lines.append(f"{variable_name}: {type_str} = {initial_value}")
+                    else:
+                        code_lines.append(f"# {variable_name}: {type_str}")
+                else:
+                    code_lines.append(f"# Type: {type_str}")
+
+                # 補足コメント
+                if note:
+                    code_lines.append(f"# {note}")
+
             code_lines.append("")
 
         # クラス定義
