@@ -1210,7 +1210,11 @@ const edgeTypes = {
   logicEdge: LogicEdge,
 };
 
-export default function FlowVisualization() {
+type FlowVisualizationProps = {
+  initialFlowId?: string | null;
+};
+
+export default function FlowVisualization({ initialFlowId }: FlowVisualizationProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<LogicEdgeData>([]);
   const [savedFlows, setSavedFlows] = useState<SavedFlowSummary[]>([]);
@@ -1276,6 +1280,7 @@ export default function FlowVisualization() {
   useEffect(() => {
     void fetchSavedFlows();
   }, [fetchSavedFlows]);
+
 
   useEffect(() => {
     const normalized = normalizeParallelOffsets(edges);
@@ -2979,6 +2984,13 @@ export default function FlowVisualization() {
     },
     [resetTransientState, setEdges, setNodes]
   );
+
+  // 初期フローIDが指定されている場合の自動読み込み
+  useEffect(() => {
+    if (initialFlowId) {
+      restoreSavedFlow(initialFlowId);
+    }
+  }, [initialFlowId, restoreSavedFlow]);
 
   const recordDebugEvent = useCallback((type: string, event: ReactMouseEvent) => {
     debugEventCount.current += 1;

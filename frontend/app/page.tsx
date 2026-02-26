@@ -2,12 +2,16 @@
 
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
 
 const FlowVisualization = dynamic(() => import('@/components/FlowVisualization'), {
   ssr: false,
 });
 
-export default function Home() {
+function HomeContent() {
+  const searchParams = useSearchParams();
+  const flowId = searchParams.get('flowId');
   return (
     <div className="min-h-screen bg-transparent">
       <div className="mx-auto flex h-screen w-full max-w-screen-2xl flex-col px-4 py-6">
@@ -36,11 +40,21 @@ export default function Home() {
               Flow Visualization
             </h2>
             <div className="flex-1 min-h-[70vh] rounded-2xl border border-white/60 bg-white/20 backdrop-blur-xl shadow-xl overflow-hidden dark:border-slate-500/40 dark:bg-slate-900/30">
-              <FlowVisualization />
+              <FlowVisualization initialFlowId={flowId} />
             </div>
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-transparent flex items-center justify-center">
+      <div className="text-slate-900 dark:text-white">読み込み中...</div>
+    </div>}>
+      <HomeContent />
+    </Suspense>
   );
 }
