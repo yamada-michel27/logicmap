@@ -1,6 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 
 const FlowVisualization = dynamic(() => import('@/components/FlowVisualization'), {
   ssr: false,
@@ -11,12 +12,22 @@ export default function Home() {
     <div className="min-h-screen bg-transparent">
       <div className="mx-auto flex h-screen w-full max-w-screen-2xl flex-col px-4 py-6">
         <header className="mb-4 rounded-2xl glass-panel-strong px-6 py-5 text-slate-900 dark:text-white">
-          <h1 className="text-4xl font-bold mb-2">
-            LogicMap
-          </h1>
-          <p className="text-slate-600 dark:text-slate-200">
-            See the whole flow. Think deeper. Close the gap.
-          </p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-4xl font-bold mb-2">
+                LogicMap
+              </h1>
+              <p className="text-slate-600 dark:text-slate-200">
+                See the whole flow. Think deeper. Close the gap.
+              </p>
+            </div>
+            <Link
+              href="/flows"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+            >
+              保存済みフロー
+            </Link>
+          </div>
         </header>
 
         <div className="flex-1">
