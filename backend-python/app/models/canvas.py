@@ -19,9 +19,10 @@ class ClassMethod(BaseModel):
     note: str
 
 # ノード種類
-NodeKind = Literal['start', 'end', 'normal']
+NodeKind = Literal['start', 'end', 'normal', 'break', 'continue', 'return']
 SectionType = Literal['function', 'class', 'interface', 'main', 'try', 'catch', 'while', 'for', 'if', 'elif', 'else']
 NodeControlType = Literal['flow', 'condition', 'loop', 'function', 'class']
+PythonType = Literal['int', 'float', 'bool', 'str', 'list', 'tuple', 'dict', 'set', 'None', 'Optional', 'Union', 'Any']
 
 class LogicNodeData(BaseModel):
     label: Optional[str] = None
@@ -62,8 +63,21 @@ class StampNodeData(BaseModel):
     stamp: StampType
     seq: int
 
+class TypeNodeData(BaseModel):
+    pythonType: PythonType
+    seq: int
+    variableName: Optional[str] = None  # 変数名
+    initialValue: Optional[str] = None  # 初期値
+    elementType: Optional[str] = None  # list, tuple, setの要素型
+    keyType: Optional[str] = None  # dictのキー型
+    valueType: Optional[str] = None  # dictの値型
+    innerType: Optional[str] = None  # Optionalの内部型
+    unionTypes: Optional[List[str]] = None  # Unionの型リスト
+    note: Optional[str] = None
+    genericParams: Optional[str] = None  # その他の型パラメータ用
+
 # Union型でノードデータを表現
-FlowNodeData = Union[LogicNodeData, SectionNodeData, MemoNodeData, StampNodeData]
+FlowNodeData = Union[LogicNodeData, SectionNodeData, MemoNodeData, StampNodeData, TypeNodeData]
 
 class LogicEdgeData(BaseModel):
     controlType: NodeControlType

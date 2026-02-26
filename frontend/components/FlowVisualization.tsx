@@ -37,13 +37,30 @@ import { NodeResizer } from '@reactflow/node-resizer';
 import 'reactflow/dist/style.css';
 import '@reactflow/node-resizer/dist/style.css';
 
-type NodeKind = 'start' | 'end' | 'normal';
-type SectionType = 'function' | 'class' | 'interface' | 'main' | 'try' | 'catch' | 'while' | 'for';
+type NodeKind = 'start' | 'end' | 'normal' | 'break' | 'continue' | 'return';
+type SectionType = 'function' | 'class' | 'interface' | 'main' | 'try' | 'catch' | 'while' | 'for' | 'if' | 'elif' | 'else';
 
 const EDGE_CONTROL_OPTIONS = ['flow', 'if', 'elif', 'else', 'break', 'continue'] as const;
 
 type EdgeControlType = (typeof EDGE_CONTROL_OPTIONS)[number];
 type NodeControlType = EdgeControlType | 'function' | 'class';
+
+const PYTHON_TYPE_OPTIONS = [
+  { id: 'int', name: 'int', description: '整数型' },
+  { id: 'float', name: 'float', description: '浮動小数点型' },
+  { id: 'bool', name: 'bool', description: '真偽値型' },
+  { id: 'str', name: 'str', description: '文字列型' },
+  { id: 'list', name: 'list', description: 'リスト型' },
+  { id: 'tuple', name: 'tuple', description: 'タプル型' },
+  { id: 'dict', name: 'dict', description: '辞書型' },
+  { id: 'set', name: 'set', description: '集合型' },
+  { id: 'None', name: 'None', description: 'None型' },
+  { id: 'Optional', name: 'Optional', description: 'オプショナル型' },
+  { id: 'Union', name: 'Union', description: 'ユニオン型' },
+  { id: 'Any', name: 'Any', description: '任意型' },
+] as const;
+
+type PythonType = (typeof PYTHON_TYPE_OPTIONS)[number]['id'];
 
 type TypedField = {
   name: string;
@@ -124,7 +141,21 @@ type StampNodeData = {
   onDelete?: (nodeId: string) => void;
 };
 
-type FlowNodeData = LogicNodeData | SectionNodeData | MemoNodeData | StampNodeData;
+type TypeNodeData = {
+  pythonType: PythonType;
+  seq: number;
+  variableName?: string; // 変数名
+  initialValue?: string; // 初期値
+  elementType?: string; // list, tuple, setの要素型
+  keyType?: string; // dictのキー型
+  valueType?: string; // dictの値型
+  innerType?: string; // Optionalの内部型
+  unionTypes?: string[]; // Unionの型リスト
+  note?: string;
+  genericParams?: string; // その他の型パラメータ用
+};
+
+type FlowNodeData = LogicNodeData | SectionNodeData | MemoNodeData | StampNodeData | TypeNodeData;
 
 type LogicEdgeData = {
   controlType: EdgeControlType;
@@ -192,7 +223,7 @@ function toRgba(hex: string, alpha: number) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-type StyleKey = EdgeControlType | SectionType;
+type StyleKey = EdgeControlType | SectionType | 'return';
 
 const CONTROL_STYLE: Record<
   StyleKey,
@@ -206,6 +237,7 @@ const CONTROL_STYLE: Record<
   else: { label: 'else', color: '#4f46e5', nodeBg: '#e0e7ff' },
   break: { label: 'break', color: '#b91c1c', edgeDash: '4 4', nodeBg: '#fecaca' },
   continue: { label: 'continue', color: '#c2410c', edgeDash: '2 4', nodeBg: '#fed7aa' },
+  return: { label: 'return', color: '#059669', nodeBg: '#d1fae5' },
   try: { label: 'try', color: '#15803d', edgeDash: '4 2', nodeBg: '#dcfce7' },
   catch: { label: 'catch', color: '#dc2626', edgeDash: '4 2', nodeBg: '#fecaca' },
   function: { label: 'function', color: '#0e7490', nodeBg: '#ecfeff' },
@@ -285,7 +317,7 @@ const EMPTY_EDGE_FORM: EdgeFormState = {
 
 type NodeOption = {
   label: string;
-  kind: NodeKind | 'section';
+  kind: NodeKind | 'section' | 'type';
   sectionType?: SectionType;
   nodeLabel?: string;
 };
@@ -294,14 +326,21 @@ const NODE_OPTIONS: NodeOption[] = [
   { label: 'Start', kind: 'start' },
   { label: 'End', kind: 'end' },
   { label: '通常', kind: 'normal', nodeLabel: '' },
+  { label: CONTROL_STYLE.break.label, kind: 'break' },
+  { label: CONTROL_STYLE.continue.label, kind: 'continue' },
+  { label: CONTROL_STYLE.return.label, kind: 'return' },
   { label: CONTROL_STYLE.function.label, kind: 'section', sectionType: 'function' },
   { label: CONTROL_STYLE.class.label, kind: 'section', sectionType: 'class' },
   { label: CONTROL_STYLE.interface.label, kind: 'section', sectionType: 'interface' },
   { label: CONTROL_STYLE.main.label, kind: 'section', sectionType: 'main' },
   { label: CONTROL_STYLE.while.label, kind: 'section', sectionType: 'while' },
   { label: CONTROL_STYLE.for.label, kind: 'section', sectionType: 'for' },
+  { label: CONTROL_STYLE.if.label, kind: 'section', sectionType: 'if' },
+  { label: CONTROL_STYLE.elif.label, kind: 'section', sectionType: 'elif' },
+  { label: CONTROL_STYLE.else.label, kind: 'section', sectionType: 'else' },
   { label: CONTROL_STYLE.try.label, kind: 'section', sectionType: 'try' },
   { label: CONTROL_STYLE.catch.label, kind: 'section', sectionType: 'catch' },
+  { label: '型ノード', kind: 'type' },
 ];
 
 function getNodeRect(node: Node<FlowNodeData>): NodeRect | null {
@@ -352,6 +391,9 @@ function findSectionAtPoint(
 function getBaseNodeTint(nodeKind: NodeKind) {
   if (nodeKind === 'start') return '#ecfdf5';
   if (nodeKind === 'end') return '#fff1f2';
+  if (nodeKind === 'break') return '#fecaca';
+  if (nodeKind === 'continue') return '#fed7aa';
+  if (nodeKind === 'return') return '#d1fae5';
   return '#ffffff';
 }
 
@@ -359,6 +401,9 @@ function getLogicNodeLabel(data: LogicNodeData) {
   if (data.label && data.label.length > 0) return data.label;
   if (data.nodeKind === 'start') return 'Start';
   if (data.nodeKind === 'end') return 'End';
+  if (data.nodeKind === 'break') return 'break';
+  if (data.nodeKind === 'continue') return 'continue';
+  if (data.nodeKind === 'return') return 'return';
   return '通常';
 }
 
@@ -370,6 +415,10 @@ function getNodeDisplayLabel(node: Node<FlowNodeData>) {
   }
   if (node.type === 'memoNode') return 'メモ';
   if (node.type === 'stampNode') return 'スタンプ';
+  if (node.type === 'typeNode') {
+    const data = node.data as TypeNodeData;
+    return data.pythonType + (data.genericParams ? `[${data.genericParams}]` : '');
+  }
   return getLogicNodeLabel(node.data as LogicNodeData);
 }
 
@@ -387,6 +436,9 @@ function getNodeOptionForNode(node: Node<FlowNodeData>): NodeOption | null {
         (option) => option.kind === 'section' && option.sectionType === data.sectionType
       ) ?? null
     );
+  }
+  if (node.type === 'typeNode') {
+    return NODE_OPTIONS.find((option) => option.kind === 'type') ?? null;
   }
   if (node.type !== 'logicNode') return null;
   const data = node.data as LogicNodeData;
@@ -464,6 +516,21 @@ function serializeNode(node: Node<FlowNodeData>): StoredNode {
   } else if (node.type === 'memoNode') {
     const memoData = node.data as MemoNodeData;
     data = { text: memoData.text, seq: memoData.seq };
+  } else if (node.type === 'typeNode') {
+    const typeData = node.data as TypeNodeData;
+    data = {
+      pythonType: typeData.pythonType,
+      seq: typeData.seq,
+      variableName: typeData.variableName,
+      initialValue: typeData.initialValue,
+      elementType: typeData.elementType,
+      keyType: typeData.keyType,
+      valueType: typeData.valueType,
+      innerType: typeData.innerType,
+      unionTypes: typeData.unionTypes,
+      note: typeData.note,
+      genericParams: typeData.genericParams,
+    };
   } else if (node.type === 'logicNode') {
     const logicData = node.data as LogicNodeData;
     data = {
@@ -1058,6 +1125,185 @@ function StampNode({ id, data }: NodeProps<StampNodeData>) {
   );
 }
 
+function TypeNode({ data }: NodeProps<TypeNodeData>) {
+  const typeInfo = PYTHON_TYPE_OPTIONS.find((option) => option.id === data.pythonType);
+  const displayName = typeInfo?.name ?? data.pythonType;
+  const description = typeInfo?.description ?? '';
+
+  // 型に応じた色設定
+  const getTypeColor = (pythonType: PythonType) => {
+    switch (pythonType) {
+      case 'int':
+      case 'float':
+        return { bg: '#dcfce7', border: '#16a34a', text: '#15803d' }; // 数値型: 緑
+      case 'str':
+        return { bg: '#fef3c7', border: '#f59e0b', text: '#d97706' }; // 文字列型: 黄
+      case 'bool':
+        return { bg: '#ddd6fe', border: '#8b5cf6', text: '#7c3aed' }; // ブール型: 紫
+      case 'list':
+      case 'tuple':
+      case 'set':
+        return { bg: '#e0f2fe', border: '#0ea5e9', text: '#0284c7' }; // コレクション型: 青
+      case 'dict':
+        return { bg: '#fce7f3', border: '#ec4899', text: '#db2777' }; // 辞書型: ピンク
+      case 'None':
+        return { bg: '#f3f4f6', border: '#6b7280', text: '#4b5563' }; // None型: グレー
+      case 'Optional':
+      case 'Union':
+      case 'Any':
+        return { bg: '#fed7aa', border: '#f97316', text: '#ea580c' }; // 特殊型: オレンジ
+      default:
+        return { bg: '#f8fafc', border: '#64748b', text: '#475569' }; // デフォルト: グレー
+    }
+  };
+
+  // 型情報の詳細を生成
+  const getTypeDisplayString = (data: TypeNodeData): string => {
+    let typeStr: string = data.pythonType;
+
+    switch (data.pythonType) {
+      case 'list':
+      case 'tuple':
+      case 'set':
+        if (data.elementType) {
+          typeStr = `${data.pythonType}[${data.elementType}]`;
+        }
+        break;
+      case 'dict':
+        if (data.keyType && data.valueType) {
+          typeStr = `dict[${data.keyType}, ${data.valueType}]`;
+        }
+        break;
+      case 'Optional':
+        if (data.innerType) {
+          typeStr = `Optional[${data.innerType}]`;
+        }
+        break;
+      case 'Union':
+        if (data.unionTypes && data.unionTypes.length > 0) {
+          typeStr = `Union[${data.unionTypes.join(', ')}]`;
+        }
+        break;
+    }
+
+    return typeStr;
+  };
+
+  const colors = getTypeColor(data.pythonType);
+  const fullTypeString = getTypeDisplayString(data);
+
+  return (
+    <div
+      className="relative h-full w-full rounded-lg border-2 p-3 text-sm shadow-lg"
+      style={{
+        backgroundColor: colors.bg,
+        borderColor: colors.border,
+        color: colors.text
+      }}
+    >
+      <Handle type="target" position={Position.Left} id="h-left" />
+      <Handle type="source" position={Position.Right} id="h-right" />
+      <Handle type="target" position={Position.Top} id="h-top" />
+      <Handle type="source" position={Position.Bottom} id="h-bottom" />
+
+      <div className="flex flex-col h-full p-3 overflow-hidden">
+        {/* ヘッダー: 型名 */}
+        <div className="text-center mb-2">
+          <div className="font-bold text-sm break-words leading-tight" style={{ color: colors.text }}>
+            {fullTypeString}
+          </div>
+          <div className="text-xs opacity-70 truncate">{description}</div>
+        </div>
+
+        {/* メイン情報: 変数名と初期値 */}
+        <div className="flex flex-col space-y-2">
+          {data.variableName && data.variableName.trim() && (
+            <div className="text-center">
+              <div className="text-xs text-gray-600">変数名:</div>
+              <div className="font-semibold text-sm break-words px-1 leading-tight" style={{ color: colors.text }}>
+                {data.variableName}
+              </div>
+            </div>
+          )}
+
+          {data.initialValue && data.initialValue.trim() && (
+            <div className="text-center">
+              <div className="text-xs text-gray-600">初期値:</div>
+              <div className="font-mono text-xs break-all px-1 leading-tight" style={{ color: colors.text }}>
+                {data.initialValue}
+              </div>
+            </div>
+          )}
+
+          {/* 型固有情報の表示 */}
+          {(['list', 'tuple', 'set'].includes(data.pythonType) && data.elementType) && (
+            <div className="text-center">
+              <div className="text-xs text-gray-600">要素型:</div>
+              <div className="text-xs px-1 leading-tight" style={{ color: colors.text }}>
+                {data.elementType}
+              </div>
+            </div>
+          )}
+
+          {(data.pythonType === 'dict' && (data.keyType || data.valueType)) && (
+            <div className="text-center">
+              {data.keyType && (
+                <div>
+                  <div className="text-xs text-gray-600">キー型:</div>
+                  <div className="text-xs px-1 leading-tight" style={{ color: colors.text }}>
+                    {data.keyType}
+                  </div>
+                </div>
+              )}
+              {data.valueType && (
+                <div>
+                  <div className="text-xs text-gray-600">値型:</div>
+                  <div className="text-xs px-1 leading-tight" style={{ color: colors.text }}>
+                    {data.valueType}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {(data.pythonType === 'Optional' && data.innerType) && (
+            <div className="text-center">
+              <div className="text-xs text-gray-600">内部型:</div>
+              <div className="text-xs px-1 leading-tight" style={{ color: colors.text }}>
+                {data.innerType}
+              </div>
+            </div>
+          )}
+
+          {(data.pythonType === 'Union' && data.unionTypes && data.unionTypes.length > 0) && (
+            <div className="text-center">
+              <div className="text-xs text-gray-600">Union型:</div>
+              <div className="text-xs px-1 leading-tight" style={{ color: colors.text }}>
+                {data.unionTypes.join(', ')}
+              </div>
+            </div>
+          )}
+
+          {!data.variableName && !data.initialValue && (
+            <div className="text-center text-xs opacity-60">
+              未設定
+            </div>
+          )}
+        </div>
+
+        {/* フッター: 補足 */}
+        {data.note && data.note.trim() && (
+          <div className="mt-auto pt-2 border-t border-gray-300">
+            <div className="text-xs text-center italic opacity-80 break-words leading-tight">
+              {data.note}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
   const style = CONTROL_STYLE[data.sectionType] || CONTROL_STYLE.flow;
   const sectionBg = toRgba(style.nodeBg ?? '#f8fafc', 0.28);
@@ -1204,6 +1450,7 @@ const nodeTypes = {
   sectionNode: SectionNode,
   memoNode: MemoNode,
   stampNode: StampNode,
+  typeNode: TypeNode,
 };
 
 const edgeTypes = {
@@ -1238,10 +1485,19 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
   const [nodeModalOption, setNodeModalOption] = useState<NodeOption | null>(null);
   const [nodeForm, setNodeForm] = useState<NodeFormState>({ ...EMPTY_NODE_FORM });
   const [memoText, setMemoText] = useState('');
+  const [typeForm, setTypeForm] = useState<TypeNodeData>({
+    pythonType: 'str',
+    seq: 0,
+    variableName: '',
+    initialValue: '',
+    note: ''
+  });
   const [selectedEdgeControl, setSelectedEdgeControl] =
     useState<EdgeControlType>(DEFAULT_EDGE_CONTROL);
   const [edgeForm, setEdgeForm] = useState<EdgeFormState>({ ...EMPTY_EDGE_FORM });
   const [pendingStamp, setPendingStamp] = useState<StampType | null>(null);
+  const [pendingTypeNode, setPendingTypeNode] = useState<PythonType | null>(null);
+  const [pendingTypeEdit, setPendingTypeEdit] = useState<{ id: string } | null>(null);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportedText, setExportedText] = useState('');
@@ -1435,6 +1691,92 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     []
   );
 
+  const createTypeNode = useCallback(
+    (params: {
+      pythonType: PythonType;
+      position: XYPosition;
+      variableName?: string;
+      initialValue?: string;
+      elementType?: string;
+      keyType?: string;
+      valueType?: string;
+      innerType?: string;
+      unionTypes?: string[];
+      note?: string;
+      genericParams?: string;
+    }): Node<TypeNodeData> => {
+      const seq = nextNodeSeq.current++;
+
+      // 入力内容に基づいて動的にサイズを計算
+      const calculateTypeNodeSize = () => {
+        let baseHeight = 120; // ベース高さ
+        let width = 200; // 固定幅
+
+        // 各フィールドの存在に応じて高さを追加
+        if (params.variableName && params.variableName.trim()) {
+          baseHeight += 40; // 変数名セクション
+        }
+
+        if (params.initialValue && params.initialValue.trim()) {
+          baseHeight += 40; // 初期値セクション
+        }
+
+        // 型固有フィールドの追加
+        if (['list', 'tuple', 'set'].includes(params.pythonType) && params.elementType) {
+          baseHeight += 20; // 要素型表示
+        }
+
+        if (params.pythonType === 'dict' && (params.keyType || params.valueType)) {
+          baseHeight += 20; // キー・値型表示
+        }
+
+        if (params.pythonType === 'Optional' && params.innerType) {
+          baseHeight += 20; // 内部型表示
+        }
+
+        if (params.pythonType === 'Union' && params.unionTypes && params.unionTypes.length > 0) {
+          baseHeight += 20; // Union型表示
+        }
+
+        if (params.note && params.note.trim()) {
+          baseHeight += 50; // 補足セクション（区切り線とテキスト）
+        }
+
+        // 最小・最大サイズの制限
+        const minHeight = 100;
+        const maxHeight = 300;
+
+        return {
+          width,
+          height: Math.max(minHeight, Math.min(maxHeight, baseHeight))
+        };
+      };
+
+      const size = calculateTypeNodeSize();
+
+      return {
+        id: `type-${seq}`,
+        type: 'typeNode',
+        position: params.position,
+        style: { width: size.width, height: size.height },
+        data: {
+          pythonType: params.pythonType,
+          seq,
+          variableName: params.variableName,
+          initialValue: params.initialValue,
+          elementType: params.elementType,
+          keyType: params.keyType,
+          valueType: params.valueType,
+          innerType: params.innerType,
+          unionTypes: params.unionTypes,
+          note: params.note,
+          genericParams: params.genericParams,
+        },
+      };
+    },
+    []
+  );
+
   const onConnect = useCallback(
     (params: Connection) => {
       if (isSectionEntryConnection(nodes, params)) {
@@ -1548,6 +1890,34 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     setNodeForm({ ...EMPTY_NODE_FORM });
     setMemoText(node.data.text ?? '');
     setPendingMemoEdit({ id: node.id });
+  }, []);
+
+  const openTypeEditModal = useCallback((node: Node<TypeNodeData>) => {
+    setPendingConnection(null);
+    setPendingNodeClientPosition(null);
+    setPendingNodeDelete(null);
+    setPendingNodeEdit(null);
+    setPendingEdgeEdit(null);
+    setPendingMemoEdit(null);
+    setPendingMemoClientPosition(null);
+    setPendingStamp(null);
+    setNodeModalOption(null);
+    setNodeForm({ ...EMPTY_NODE_FORM });
+    setMemoText('');
+    setTypeForm({
+      pythonType: node.data.pythonType,
+      seq: node.data.seq,
+      variableName: node.data.variableName ?? '',
+      initialValue: node.data.initialValue ?? '',
+      elementType: node.data.elementType ?? '',
+      keyType: node.data.keyType ?? '',
+      valueType: node.data.valueType ?? '',
+      innerType: node.data.innerType ?? '',
+      unionTypes: node.data.unionTypes ?? [],
+      note: node.data.note ?? '',
+      genericParams: node.data.genericParams ?? ''
+    });
+    setPendingTypeEdit({ id: node.id });
   }, []);
 
   const openTemplateModal = useCallback(() => {
@@ -2198,6 +2568,24 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
               text: data.text
             }
           };
+        } else if (node.type === 'typeNode') {
+          const data = nodeData as TypeNodeData;
+          return {
+            ...baseNode,
+            data: {
+              pythonType: data.pythonType,
+              seq: data.seq || nextNodeSeq,
+              variableName: data.variableName,
+              initialValue: data.initialValue,
+              elementType: data.elementType,
+              keyType: data.keyType,
+              valueType: data.valueType,
+              innerType: data.innerType,
+              unionTypes: data.unionTypes,
+              note: data.note,
+              genericParams: data.genericParams
+            }
+          };
         } else if (node.type === 'stampNode') {
           const data = nodeData as StampNodeData;
           return {
@@ -2321,6 +2709,13 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
         const data = nodeData as MemoNodeData;
         lines.push(`- [memo] ${data.text.replace(/\n/g, ' ')} (id: ${node.id})`);
         lines.push(`  - ${positionInfo}, ${sizeInfo}`);
+      } else if (node.type === 'typeNode') {
+        const data = nodeData as TypeNodeData;
+        const typeInfo = PYTHON_TYPE_OPTIONS.find(t => t.id === data.pythonType);
+        lines.push(`- [type] ${data.pythonType}${data.genericParams ? `[${data.genericParams}]` : ''} (id: ${node.id})`);
+        lines.push(`  - ${positionInfo}, ${sizeInfo}`);
+        if (typeInfo) lines.push(`  - 説明: ${typeInfo.description}`);
+        if (data.note) lines.push(`  - 補足: ${data.note}`);
       } else if (node.type === 'stampNode') {
         const data = nodeData as StampNodeData;
         const stamp = STAMP_OPTIONS.find(s => s.id === data.stamp);
@@ -3173,13 +3568,25 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
         setPendingStamp(null);
         return;
       }
+      if (pendingTypeNode) {
+        const instance = reactFlowInstance.current;
+        if (!instance) return;
+        const flowPosition = instance.screenToFlowPosition({
+          x: event.clientX,
+          y: event.clientY,
+        });
+        const typeNode = createTypeNode({ pythonType: pendingTypeNode, position: flowPosition });
+        setNodes((currentNodes) => [...currentNodes, typeNode]);
+        setPendingTypeNode(null);
+        return;
+      }
       const now = Date.now();
       const lastClick = lastPaneClickAt.current;
       const isDoubleClick = lastClick !== null && now - lastClick < 320;
       lastPaneClickAt.current = now;
       recordDebugEvent(isDoubleClick ? 'pane double click' : 'pane click', event);
     },
-    [createStampNode, pendingStamp, recordDebugEvent, setNodes]
+    [createStampNode, createTypeNode, pendingStamp, pendingTypeNode, recordDebugEvent, setNodes]
   );
 
   const applyControlType = useCallback(
@@ -3247,6 +3654,7 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     const instance = reactFlowInstance.current;
     if (!instance) return;
     const flowPosition = instance.screenToFlowPosition(pendingNodeClientPosition);
+
     if (nodeModalOption.kind === 'section') {
       if (!nodeModalOption.sectionType) {
         setPendingNodeClientPosition(null);
@@ -3299,6 +3707,41 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
       return;
     }
 
+    // 型ノードの作成
+    if (nodeModalOption.kind === 'type') {
+      const newTypeNode = createTypeNode({
+        pythonType: typeForm.pythonType,
+        position: flowPosition,
+        variableName: typeForm.variableName ? normalizeText(typeForm.variableName) : undefined,
+        initialValue: typeForm.initialValue ? normalizeText(typeForm.initialValue) : undefined,
+        elementType: typeForm.elementType ? normalizeText(typeForm.elementType) : undefined,
+        keyType: typeForm.keyType ? normalizeText(typeForm.keyType) : undefined,
+        valueType: typeForm.valueType ? normalizeText(typeForm.valueType) : undefined,
+        innerType: typeForm.innerType ? normalizeText(typeForm.innerType) : undefined,
+        unionTypes: typeForm.unionTypes?.filter(t => t.trim()).length ?
+          typeForm.unionTypes.filter(t => t.trim()) : undefined,
+        note: typeForm.note ? normalizeText(typeForm.note) : undefined,
+      });
+      setNodes((currentNodes) => [...currentNodes, newTypeNode]);
+      setPendingNodeClientPosition(null);
+      setNodeModalOption(null);
+      setNodeForm({ ...EMPTY_NODE_FORM });
+      setTypeForm({
+        pythonType: 'str',
+        seq: 0,
+        variableName: '',
+        initialValue: '',
+        elementType: '',
+        keyType: '',
+        valueType: '',
+        innerType: '',
+        unionTypes: [],
+        note: '',
+        genericParams: '',
+      });
+      return;
+    }
+
     const sectionNodes = instance
       .getNodes()
       .filter((node): node is Node<SectionNodeData> => node.type === 'sectionNode');
@@ -3337,10 +3780,12 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
   }, [
     createLogicNode,
     createSectionNode,
+    createTypeNode,
     nodeForm,
     nodeModalOption,
     pendingNodeClientPosition,
     setNodes,
+    typeForm,
   ]);
 
   const cancelNodeCreation = useCallback(() => {
@@ -3685,6 +4130,10 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
         openMemoEditModal(node as Node<MemoNodeData>);
         return;
       }
+      if (node.type === 'typeNode') {
+        openTypeEditModal(node as Node<TypeNodeData>);
+        return;
+      }
       if (node.type === 'stampNode') return;
       if (node.type === 'sectionNode') {
         const instance = reactFlowInstance.current;
@@ -3898,6 +4347,38 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     setPendingMemoEdit(null);
     setMemoText('');
   }, [memoText, pendingMemoEdit, setNodes]);
+
+  const applyTypeEdit = useCallback(() => {
+    if (!pendingTypeEdit) return;
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => {
+        if (node.id !== pendingTypeEdit.id || node.type !== 'typeNode') return node;
+        return {
+          ...node,
+          data: { ...typeForm },
+        };
+      })
+    );
+    setPendingTypeEdit(null);
+    setTypeForm({
+      pythonType: 'str',
+      seq: 0,
+      variableName: '',
+      initialValue: '',
+      note: ''
+    });
+  }, [pendingTypeEdit, setNodes, typeForm]);
+
+  const cancelTypeEdit = useCallback(() => {
+    setPendingTypeEdit(null);
+    setTypeForm({
+      pythonType: 'str',
+      seq: 0,
+      variableName: '',
+      initialValue: '',
+      note: ''
+    });
+  }, []);
 
   const edgeModalContent = useMemo(() => {
     const isEdit = Boolean(pendingEdgeEdit);
@@ -4198,6 +4679,164 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     pendingMemoEdit,
   ]);
 
+  const typeModalContent = useMemo(() => {
+    const isEdit = Boolean(pendingTypeEdit);
+    if (!pendingTypeEdit) return null;
+    return (
+      <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-lg max-h-[80vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
+          <h3 className="text-lg font-semibold text-gray-900">
+            型ノードを編集
+          </h3>
+          <p className="mt-1 text-sm text-gray-600">
+            Python型の詳細設定を行えます。
+          </p>
+
+          <div className="mt-4 space-y-4">
+            {/* 基本設定 */}
+            <div>
+              <label className="text-xs font-semibold text-gray-700">型</label>
+              <select
+                value={typeForm.pythonType}
+                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                onChange={(e) => setTypeForm(prev => ({ ...prev, pythonType: e.target.value as PythonType }))}
+              >
+                {PYTHON_TYPE_OPTIONS.map((option) => (
+                  <option key={option.id} value={option.id}>
+                    {option.name} - {option.description}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-gray-700">変数名</label>
+              <input
+                type="text"
+                value={typeForm.variableName || ''}
+                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                placeholder="例: user_name"
+                onChange={(e) => setTypeForm(prev => ({ ...prev, variableName: e.target.value }))}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-gray-700">初期値</label>
+              <input
+                type="text"
+                value={typeForm.initialValue || ''}
+                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                placeholder="例: 'デフォルト値'"
+                onChange={(e) => setTypeForm(prev => ({ ...prev, initialValue: e.target.value }))}
+              />
+            </div>
+
+            {/* 型別の詳細設定 */}
+            {(typeForm.pythonType === 'list' || typeForm.pythonType === 'tuple' || typeForm.pythonType === 'set') && (
+              <div>
+                <label className="text-xs font-semibold text-gray-700">要素型</label>
+                <input
+                  type="text"
+                  value={typeForm.elementType || ''}
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                  placeholder="例: str, int, Any"
+                  onChange={(e) => setTypeForm(prev => ({ ...prev, elementType: e.target.value }))}
+                />
+              </div>
+            )}
+
+            {typeForm.pythonType === 'dict' && (
+              <>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">キー型</label>
+                  <input
+                    type="text"
+                    value={typeForm.keyType || ''}
+                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                    placeholder="例: str, int"
+                    onChange={(e) => setTypeForm(prev => ({ ...prev, keyType: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700">値型</label>
+                  <input
+                    type="text"
+                    value={typeForm.valueType || ''}
+                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                    placeholder="例: Any, List[str]"
+                    onChange={(e) => setTypeForm(prev => ({ ...prev, valueType: e.target.value }))}
+                  />
+                </div>
+              </>
+            )}
+
+            {typeForm.pythonType === 'Optional' && (
+              <div>
+                <label className="text-xs font-semibold text-gray-700">内部型</label>
+                <input
+                  type="text"
+                  value={typeForm.innerType || ''}
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                  placeholder="例: str, int, List[str]"
+                  onChange={(e) => setTypeForm(prev => ({ ...prev, innerType: e.target.value }))}
+                />
+              </div>
+            )}
+
+            {typeForm.pythonType === 'Union' && (
+              <div>
+                <label className="text-xs font-semibold text-gray-700">型リスト（カンマ区切り）</label>
+                <input
+                  type="text"
+                  value={typeForm.unionTypes?.join(', ') || ''}
+                  className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                  placeholder="例: str, int, None"
+                  onChange={(e) => setTypeForm(prev => ({
+                    ...prev,
+                    unionTypes: e.target.value.split(',').map(t => t.trim()).filter(t => t)
+                  }))}
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs font-semibold text-gray-700">補足</label>
+              <textarea
+                value={typeForm.note || ''}
+                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                rows={3}
+                placeholder="説明や用途などを入力"
+                onChange={(e) => setTypeForm(prev => ({ ...prev, note: e.target.value }))}
+              />
+            </div>
+          </div>
+
+          <div className="mt-6 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              onClick={cancelTypeEdit}
+            >
+              キャンセル
+            </button>
+            <button
+              type="button"
+              className="rounded-md bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+              onClick={applyTypeEdit}
+            >
+              保存する
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }, [
+    applyTypeEdit,
+    cancelTypeEdit,
+    pendingTypeEdit,
+    typeForm,
+  ]);
+
   const nodesForRender = useMemo(
     () =>
       nodes.map((node) => {
@@ -4236,6 +4875,7 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     const fallbackOption = editingNode ? getNodeOptionForNode(editingNode) : null;
     const selectedOption = nodeModalOption ?? fallbackOption;
     const isSection = selectedOption?.kind === 'section';
+    const isType = selectedOption?.kind === 'type';
     const isNormal = selectedOption?.kind === 'normal';
     const isStartOrEnd =
       selectedOption?.kind === 'start' || selectedOption?.kind === 'end';
@@ -5534,6 +6174,144 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
                       </div>
                     )}
                   </>
+                ) : isType ? (
+                  <>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700">Python型</label>
+                      <select
+                        value={typeForm.pythonType}
+                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                        onChange={(event) =>
+                          setTypeForm((current) => ({
+                            ...current,
+                            pythonType: event.target.value as PythonType
+                          }))
+                        }
+                      >
+                        {PYTHON_TYPE_OPTIONS.map(option => (
+                          <option key={option.id} value={option.id}>{option.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700">変数名</label>
+                      <input
+                        type="text"
+                        value={typeForm.variableName || ''}
+                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                        onChange={(event) =>
+                          setTypeForm((current) => ({ ...current, variableName: event.target.value }))
+                        }
+                        placeholder="例: user_name, count, items"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700">初期値</label>
+                      <input
+                        type="text"
+                        value={typeForm.initialValue || ''}
+                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                        onChange={(event) =>
+                          setTypeForm((current) => ({ ...current, initialValue: event.target.value }))
+                        }
+                        placeholder={
+                          typeForm.pythonType === 'str' ? '例: "hello"' :
+                          typeForm.pythonType === 'int' ? '例: 0' :
+                          typeForm.pythonType === 'list' ? '例: []' :
+                          typeForm.pythonType === 'dict' ? '例: {}' :
+                          '例: None'
+                        }
+                      />
+                    </div>
+                    {['list', 'tuple', 'set'].includes(typeForm.pythonType) && (
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700">要素型</label>
+                        <input
+                          type="text"
+                          value={typeForm.elementType || ''}
+                          className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                          onChange={(event) =>
+                            setTypeForm((current) => ({ ...current, elementType: event.target.value }))
+                          }
+                          placeholder="例: str, int, User"
+                        />
+                      </div>
+                    )}
+                    {typeForm.pythonType === 'dict' && (
+                      <>
+                        <div>
+                          <label className="text-xs font-semibold text-gray-700">キー型</label>
+                          <input
+                            type="text"
+                            value={typeForm.keyType || ''}
+                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                            onChange={(event) =>
+                              setTypeForm((current) => ({ ...current, keyType: event.target.value }))
+                            }
+                            placeholder="例: str, int"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs font-semibold text-gray-700">値型</label>
+                          <input
+                            type="text"
+                            value={typeForm.valueType || ''}
+                            className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                            onChange={(event) =>
+                              setTypeForm((current) => ({ ...current, valueType: event.target.value }))
+                            }
+                            placeholder="例: str, int, User"
+                          />
+                        </div>
+                      </>
+                    )}
+                    {typeForm.pythonType === 'Optional' && (
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700">内部型</label>
+                        <input
+                          type="text"
+                          value={typeForm.innerType || ''}
+                          className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                          onChange={(event) =>
+                            setTypeForm((current) => ({ ...current, innerType: event.target.value }))
+                          }
+                          placeholder="例: str, int, User"
+                        />
+                      </div>
+                    )}
+                    {typeForm.pythonType === 'Union' && (
+                      <div>
+                        <label className="text-xs font-semibold text-gray-700">Union型リスト</label>
+                        <input
+                          type="text"
+                          value={typeForm.unionTypes?.join(', ') || ''}
+                          className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                          onChange={(event) =>
+                            setTypeForm((current) => ({
+                              ...current,
+                              unionTypes: event.target.value.split(',').map(t => t.trim()).filter(t => t)
+                            }))
+                          }
+                          placeholder="例: str, int, None"
+                        />
+                        <div className="mt-1 text-xs text-gray-500">
+                          カンマ区切りで入力してください
+                        </div>
+                      </div>
+                    )}
+                    <div>
+                      <label className="text-xs font-semibold text-gray-700">補足コメント</label>
+                      <textarea
+                        value={typeForm.note || ''}
+                        className="mt-2 w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900"
+                        rows={3}
+                        onChange={(event) =>
+                          setTypeForm((current) => ({ ...current, note: event.target.value }))
+                        }
+                        placeholder="型の使用目的や注意点を入力"
+                      />
+                    </div>
+                  </>
                 ) : (
                   <>
                     {!isStartOrEnd ? (
@@ -6142,10 +6920,32 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
               ))}
             </select>
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">型</span>
+            <select
+              value={pendingTypeNode ?? ''}
+              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900"
+              onChange={(event) =>
+                setPendingTypeNode(event.target.value ? (event.target.value as PythonType) : null)
+              }
+            >
+              <option value="">選択</option>
+              {PYTHON_TYPE_OPTIONS.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.name} - {option.description}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
         {pendingStamp ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 shadow-sm">
             クリックでスタンプを配置
+          </div>
+        ) : null}
+        {pendingTypeNode ? (
+          <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 shadow-sm">
+            クリックで型ノードを配置: {pendingTypeNode}
           </div>
         ) : null}
       </div>
@@ -6188,6 +6988,7 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
       </ReactFlow>
       {edgeModalContent}
       {memoModalContent}
+      {typeModalContent}
       {nodeModalContent}
       {nodeDeleteContent}
       {templateModalContent}
