@@ -265,6 +265,16 @@ const FLOW_STORAGE_VERSION = 1;
 const USER_ID_STORAGE_KEY = 'logicmap:user-id';
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
 
+// 内部要素の定義
+type InnerElement = {
+  id: string;
+  type: 'section' | 'node';
+  sectionType?: SectionType;
+  nodeKind?: NodeKind;
+  label: string;
+  order: number;
+};
+
 type NodeFormState = {
   label: string;
   condition: string;
@@ -282,6 +292,8 @@ type NodeFormState = {
   interfaceMembers: TypedField[];
   interfaceMethods: ClassMethod[];
   validations: ValidationRule[];
+  // Phase7: 内部要素管理
+  innerElements: InnerElement[];
 };
 
 type EdgeFormState = {
@@ -307,6 +319,8 @@ const EMPTY_NODE_FORM: NodeFormState = {
   interfaceMembers: [],
   interfaceMethods: [],
   validations: [],
+  // Phase7: 内部要素管理
+  innerElements: [],
 };
 
 const EMPTY_EDGE_FORM: EdgeFormState = {
@@ -686,6 +700,87 @@ function buildCatchValue(form: NodeFormState) {
   return normalizeText(form.catchExceptionType);
 }
 
+// Phase7: セクション種別に応じた追加可能な内部要素を取得
+function getAvailableInnerElements(sectionType: SectionType): { type: 'section' | 'node', sectionType?: SectionType, nodeKind?: NodeKind, label: string }[] {
+  const available = [];
+
+  if (sectionType === 'function') {
+    // 関数セクション内で追加可能
+    available.push(
+      { type: 'section' as const, sectionType: 'for' as const, label: 'for文' },
+      { type: 'section' as const, sectionType: 'while' as const, label: 'while文' },
+      { type: 'section' as const, sectionType: 'if' as const, label: 'if文' },
+      { type: 'section' as const, sectionType: 'elif' as const, label: 'elif文' },
+      { type: 'section' as const, sectionType: 'else' as const, label: 'else文' },
+      { type: 'node' as const, nodeKind: 'return' as const, label: 'return' },
+      { type: 'node' as const, nodeKind: 'normal' as const, label: '処理ノード' }
+    );
+  } else if (sectionType === 'class') {
+    // クラスセクション内で追加可能
+    available.push(
+      { type: 'section' as const, sectionType: 'for' as const, label: 'for文' },
+      { type: 'section' as const, sectionType: 'while' as const, label: 'while文' },
+      { type: 'section' as const, sectionType: 'if' as const, label: 'if文' },
+      { type: 'section' as const, sectionType: 'elif' as const, label: 'elif文' },
+      { type: 'section' as const, sectionType: 'else' as const, label: 'else文' },
+      { type: 'node' as const, nodeKind: 'normal' as const, label: '処理ノード' }
+    );
+  } else if (sectionType === 'for' || sectionType === 'while') {
+    // ループセクション内で追加可能
+    available.push(
+      { type: 'section' as const, sectionType: 'if' as const, label: 'if文' },
+      { type: 'section' as const, sectionType: 'elif' as const, label: 'elif文' },
+      { type: 'section' as const, sectionType: 'else' as const, label: 'else文' },
+      { type: 'node' as const, nodeKind: 'break' as const, label: 'break' },
+      { type: 'node' as const, nodeKind: 'continue' as const, label: 'continue' },
+      { type: 'node' as const, nodeKind: 'normal' as const, label: '処理ノード' }
+    );
+  } else if (sectionType === 'if' || sectionType === 'elif' || sectionType === 'else') {
+    // 条件分岐セクション内で追加可能
+    available.push(
+      { type: 'section' as const, sectionType: 'for' as const, label: 'for文' },
+      { type: 'section' as const, sectionType: 'while' as const, label: 'while文' },
+      { type: 'section' as const, sectionType: 'if' as const, label: 'if文' },
+      { type: 'section' as const, sectionType: 'elif' as const, label: 'elif文' },
+      { type: 'section' as const, sectionType: 'else' as const, label: 'else文' },
+      { type: 'node' as const, nodeKind: 'break' as const, label: 'break' },
+      { type: 'node' as const, nodeKind: 'continue' as const, label: 'continue' },
+      { type: 'node' as const, nodeKind: 'return' as const, label: 'return' },
+      { type: 'node' as const, nodeKind: 'normal' as const, label: '処理ノード' }
+    );
+  }
+
+  return available;
+}
+
+// Phase7: エッジ作成ヘルパー関数
+function createEdge(params: {
+  source: string;
+  target: string;
+  controlType: EdgeControlType;
+  condition?: string;
+  note?: string;
+}): Edge<LogicEdgeData> {
+  const style = CONTROL_STYLE[params.controlType] || CONTROL_STYLE.flow;
+  return {
+    id: `edge-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    type: 'logicEdge',
+    source: params.source,
+    target: params.target,
+    sourceHandle: 'h-bottom',
+    targetHandle: 'h-top',
+    data: {
+      controlType: params.controlType,
+      condition: params.condition || '',
+      note: params.note || '',
+      validations: [],
+      parallelOffset: 0
+    },
+    style: { ...style, zIndex: 1000 },
+    markerEnd: { type: MarkerType.ArrowClosed, color: style.color },
+  };
+}
+
 function buildConditionForControl(controlType: EdgeControlType, form: EdgeFormState) {
   if (controlType === 'flow') return undefined;
   return normalizeText(form.condition);
@@ -1036,6 +1131,8 @@ function buildNodeFormFromNode(node: Node<FlowNodeData>): NodeFormState {
       validations: allowValidations
         ? data.validations?.map((rule) => ({ ...rule })) ?? []
         : [],
+      // Phase7: 内部要素は編集時には空で初期化（追加のみサポート）
+      innerElements: [],
     };
   }
   if (node.type !== 'logicNode') return base;
@@ -1959,6 +2056,76 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
 
     return { width, height };
   }, []);
+
+  // Phase7: サイズ更新中フラグを管理
+  const updatingSizeRef = useRef<Set<string>>(new Set());
+  // Phase7: ドラッグ中フラグを管理（完全な無限ループ防止）
+  const isDraggingRef = useRef(false);
+
+  // Phase7: 親セクションのサイズを子要素に合わせて動的調整
+  const updateParentSectionSize = useCallback((parentSectionId: string) => {
+    // ドラッグ中は完全にサイズ更新を停止（無限ループ防止）
+    if (isDraggingRef.current) {
+      return;
+    }
+
+    // 既に更新中の場合はスキップ（無限ループ防止）
+    if (updatingSizeRef.current.has(parentSectionId)) {
+      return;
+    }
+
+    updatingSizeRef.current.add(parentSectionId);
+
+    setNodes((currentNodes) => {
+      // 親セクションと子要素を取得
+      const parentSection = currentNodes.find(node => node.id === parentSectionId && node.type === 'sectionNode');
+      if (!parentSection) {
+        updatingSizeRef.current.delete(parentSectionId);
+        return currentNodes;
+      }
+
+      const childNodes = currentNodes.filter(node => node.parentNode === parentSectionId);
+      if (childNodes.length === 0) {
+        updatingSizeRef.current.delete(parentSectionId);
+        return currentNodes;
+      }
+
+      // 子要素の位置を基に新しいサイズを計算
+      const newSize = calculateSectionSize(childNodes);
+
+      // 現在のサイズと比較して変更が必要かチェック（無限ループ防止）
+      const currentWidth = typeof parentSection.style?.width === 'number' ? parentSection.style.width : 0;
+      const currentHeight = typeof parentSection.style?.height === 'number' ? parentSection.style.height : 0;
+
+      // サイズに大きな変更がない場合は更新しない
+      if (Math.abs(currentWidth - newSize.width) < 10 && Math.abs(currentHeight - newSize.height) < 10) {
+        updatingSizeRef.current.delete(parentSectionId);
+        return currentNodes;
+      }
+
+      // 親セクションのサイズを更新
+      const updatedNodes = currentNodes.map(node => {
+        if (node.id === parentSectionId) {
+          return {
+            ...node,
+            style: {
+              ...node.style,
+              width: newSize.width,
+              height: newSize.height,
+            },
+          };
+        }
+        return node;
+      });
+
+      // 更新完了後にフラグをクリア
+      setTimeout(() => {
+        updatingSizeRef.current.delete(parentSectionId);
+      }, 200);
+
+      return updatedNodes;
+    });
+  }, [calculateSectionSize, setNodes]);
 
   const applyTemplate = useCallback((templateId: TemplateType) => {
     const wrapper = wrapperRef.current;
@@ -3687,7 +3854,92 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
           : undefined,
         validations: allowValidations ? nodeForm.validations.map((rule) => ({ ...rule })) : [],
       });
-      setNodes((currentNodes) => [newSection, ...currentNodes]);
+
+      // Phase7: 内部要素の自動生成
+      let createdNodes = [newSection];
+      let createdEdges: Edge[] = [];
+
+      if (nodeForm.innerElements.length > 0) {
+        const sortedElements = nodeForm.innerElements.sort((a, b) => a.order - b.order);
+        let previousNodeId = newSection.id;
+
+        for (let i = 0; i < sortedElements.length; i++) {
+          const element = sortedElements[i];
+          const basePosition = {
+            x: flowPosition.x + (i * 150) - (sortedElements.length - 1) * 75, // 要素を横に並べる
+            y: flowPosition.y + 120, // セクションの下に配置
+          };
+
+          let newNode: Node;
+          if (element.type === 'section') {
+            newNode = createSectionNode({
+              sectionType: element.sectionType!,
+              label: `${element.label}_${i + 1}`,
+              position: basePosition,
+            });
+            // 子セクションを親セクション内に配置
+            newNode.parentNode = newSection.id;
+            newNode.extent = 'parent';
+            newNode.position = {
+              x: basePosition.x - flowPosition.x,
+              y: basePosition.y - flowPosition.y,
+            };
+          } else {
+            newNode = createLogicNode({
+              kind: element.nodeKind!,
+              label: element.nodeKind === 'normal' ? `処理_${i + 1}` : element.nodeKind!,
+              position: basePosition,
+            });
+            // 子ノードを親セクション内に配置
+            newNode.parentNode = newSection.id;
+            newNode.extent = 'parent';
+            newNode.position = {
+              x: basePosition.x - flowPosition.x,
+              y: basePosition.y - flowPosition.y,
+            };
+          }
+
+          createdNodes.push(newNode);
+
+          // フロー接続を作成（前の要素と現在の要素を接続）
+          if (i === 0) {
+            // 最初の要素はセクションのエントリポイントに接続
+            // entryNodeIdが設定されている場合はそれを優先
+            const entryNodeId = normalizeText(nodeForm.entryNodeId);
+            if (entryNodeId) {
+              const entryEdge = createEdge({
+                source: entryNodeId,
+                target: newNode.id,
+                controlType: 'flow',
+              });
+              createdEdges.push(entryEdge);
+            }
+          } else {
+            // 前の要素から現在の要素への接続
+            const flowEdge = createEdge({
+              source: previousNodeId,
+              target: newNode.id,
+              controlType: 'flow',
+            });
+            createdEdges.push(flowEdge);
+          }
+
+          previousNodeId = newNode.id;
+        }
+      }
+
+      setNodes((currentNodes) => [...createdNodes, ...currentNodes]);
+      if (createdEdges.length > 0) {
+        setEdges((currentEdges) => [...createdEdges, ...currentEdges]);
+      }
+
+      // Phase7: 内部要素が追加された場合は親セクションのサイズを調整
+      if (nodeForm.innerElements.length > 0) {
+        setTimeout(() => {
+          updateParentSectionSize(newSection.id);
+        }, 100);
+      }
+
       setPendingNodeClientPosition(null);
       setNodeModalOption(null);
       setNodeForm({ ...EMPTY_NODE_FORM });
@@ -3980,6 +4232,10 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
       const removedIsClassSection =
         removedIsSection &&
         (removedNode?.data as SectionNodeData | undefined)?.sectionType === 'class';
+
+      // Phase7: 削除されるノードの親セクションIDを保存（サイズ更新用）
+      const parentSectionId = removedNode?.parentNode;
+
       if (removedIsClassSection) {
         nodes.forEach((node) => {
           if (node.type !== 'logicNode') return;
@@ -4024,8 +4280,15 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
       setPendingMemoEdit(null);
       setPendingMemoClientPosition(null);
       setMemoText('');
+
+      // Phase7: 削除後に親セクションのサイズを調整
+      if (parentSectionId) {
+        setTimeout(() => {
+          updateParentSectionSize(parentSectionId);
+        }, 100);
+      }
     },
-    [nodes, setEdges, setNodes]
+    [nodes, setEdges, setNodes, updateParentSectionSize]
   );
 
   const createClassInstance = useCallback(
@@ -4259,11 +4522,28 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     }
   }, [applyControlType, pendingConnection, pendingEdgeEdit, selectedEdgeControl, updateEdgeControl]);
 
+  // Phase7: ドラッグ開始時にフラグを設定
+  const onNodeDragStart = useCallback<NodeDragHandler>(
+    (_event, _node) => {
+      isDraggingRef.current = true;
+    },
+    []
+  );
+
   const onNodeDragStop = useCallback<NodeDragHandler>(
     (_event, draggedNode) => {
-      if (draggedNode.type !== 'logicNode') return;
+      // Phase7: ドラッグ終了時にフラグをクリア
+      isDraggingRef.current = false;
+
       const instance = reactFlowInstance.current;
       if (!instance) return;
+
+      // Phase7: セクションノードとlogicノードの両方を処理
+      const isLogicNode = draggedNode.type === 'logicNode';
+      const isSectionNode = draggedNode.type === 'sectionNode';
+
+      if (!isLogicNode && !isSectionNode) return;
+
       const sectionNodes = instance
         .getNodes()
         .filter((node): node is Node<SectionNodeData> => node.type === 'sectionNode');
@@ -4276,13 +4556,73 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
         : draggedNode.positionAbsolute ?? draggedNode.position;
       const parentSection = findSectionAtPoint(focusPoint, sectionNodes);
 
+      // Phase7: 親子関係のバリデーション（循環参照防止）
+      const isValidParentChild = (childId: string, parentId: string): boolean => {
+        try {
+          // 自己参照チェック
+          if (childId === parentId) {
+            return false;
+          }
+
+          // 親ノードがsectionNodeかチェック
+          const parentNode = sectionNodes.find(node => node.id === parentId);
+          if (!parentNode) {
+            return false; // 親がセクションノードでない場合は無効
+          }
+
+          // 循環参照チェック：親の階層を上に辿って子ノードが含まれていないかチェック
+          const allNodes = instance.getNodes();
+          let currentParent: string | undefined = parentId;
+          const visitedParents = new Set<string>(); // 無限ループ防止
+
+          while (currentParent) {
+            if (visitedParents.has(currentParent)) {
+              // 無限ループを検出
+              return false;
+            }
+            visitedParents.add(currentParent);
+
+            const parent = allNodes.find(node => node.id === currentParent);
+            if (!parent) break;
+
+            if (parent.parentNode === childId) {
+              // 循環参照を発見
+              return false;
+            }
+
+            currentParent = parent.parentNode;
+
+            // 安全のため最大階層数を制限
+            if (visitedParents.size > 20) {
+              return false;
+            }
+          }
+
+          return true;
+        } catch (error) {
+          console.error('Error in parent-child validation:', error);
+          return false; // エラーが発生した場合は安全のため無効とする
+        }
+      };
+
+      // 元の親セクションIDを保存（サイズ更新用）
+      const oldParentId = draggedNode.parentNode;
+      let newParentId: string | undefined = undefined;
+
       setNodes((currentNodes) =>
         currentNodes.map((node) => {
           if (node.id !== draggedNode.id) return node;
           if (parentSection) {
+            // Phase7: 親子関係の妥当性チェック
+            if (!isValidParentChild(draggedNode.id, parentSection.id)) {
+              console.warn(`Invalid parent-child relationship: ${draggedNode.id} -> ${parentSection.id} (circular reference or self-reference)`);
+              return node; // 無効な親子関係の場合は変更しない
+            }
+
             const parentRect = getNodeRect(parentSection);
             if (!parentRect) return node;
             const absolutePos = draggedNode.positionAbsolute ?? draggedNode.position;
+            newParentId = parentSection.id;
             return {
               ...node,
               parentNode: parentSection.id,
@@ -4305,8 +4645,22 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
           return node;
         })
       );
+
+      // Phase7: 親セクションのサイズを更新
+      // logicNodeの移動時のみサイズ更新を実行（sectionNodeの移動時は無限ループ防止のためスキップ）
+      if (isLogicNode) {
+        // 少し遅延させてReact Flowの位置更新完了後にサイズ調整
+        setTimeout(() => {
+          if (oldParentId) {
+            updateParentSectionSize(oldParentId);
+          }
+          if (newParentId && newParentId !== oldParentId) {
+            updateParentSectionSize(newParentId);
+          }
+        }, 150);
+      }
     },
-    [setNodes]
+    [setNodes, updateParentSectionSize]
   );
 
   const applyMemoCreation = useCallback(() => {
@@ -6160,6 +6514,140 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
                         />
                       </div>
                     )}
+
+                    {/* Phase7: 内部要素管理UI */}
+                    {isSection && !isEdit && selectedOption.sectionType && (
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-semibold text-gray-700">内部要素</label>
+                          <select
+                            value=""
+                            className="rounded-md border border-gray-300 px-2 py-1 text-xs text-gray-700 hover:bg-gray-50"
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              if (!value) return;
+
+                              const [type, subType] = value.split(':');
+                              const availableElements = getAvailableInnerElements(selectedOption.sectionType!);
+                              const selected = availableElements.find(el =>
+                                el.type === type &&
+                                (type === 'section' ? el.sectionType === subType : el.nodeKind === subType)
+                              );
+
+                              if (selected) {
+                                const newElement: InnerElement = {
+                                  id: `inner-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                                  type: selected.type,
+                                  sectionType: selected.sectionType,
+                                  nodeKind: selected.nodeKind,
+                                  label: selected.label,
+                                  order: nodeForm.innerElements.length,
+                                };
+
+                                setNodeForm((current) => ({
+                                  ...current,
+                                  innerElements: [...current.innerElements, newElement],
+                                }));
+                              }
+
+                              // selectの値をリセット
+                              event.target.value = '';
+                            }}
+                          >
+                            <option value="">+ 要素を追加</option>
+                            {getAvailableInnerElements(selectedOption.sectionType).map((element) => (
+                              <option
+                                key={`${element.type}-${element.sectionType || element.nodeKind}`}
+                                value={`${element.type}:${element.sectionType || element.nodeKind}`}
+                              >
+                                {element.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {nodeForm.innerElements.length === 0 ? (
+                          <div className="mt-2 text-xs text-gray-500">
+                            このセクション内に追加する要素を選択してください。要素は指定した順序でフローが接続されます。
+                          </div>
+                        ) : (
+                          <div className="mt-3 space-y-2">
+                            {nodeForm.innerElements
+                              .sort((a, b) => a.order - b.order)
+                              .map((element, index) => (
+                              <div
+                                key={element.id}
+                                className="flex items-center justify-between rounded-md border border-gray-200 p-2"
+                              >
+                                <div className="flex items-center space-x-2">
+                                  <span className="text-xs font-mono text-gray-500">
+                                    {index + 1}.
+                                  </span>
+                                  <span className="text-sm font-medium text-gray-900">
+                                    {element.label}
+                                  </span>
+                                  <span className="text-xs text-gray-500">
+                                    ({element.type === 'section' ? 'セクション' : 'ノード'})
+                                  </span>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                  {/* 順序変更ボタン */}
+                                  <button
+                                    type="button"
+                                    className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                                    disabled={index === 0}
+                                    onClick={() => {
+                                      const newElements = [...nodeForm.innerElements];
+                                      const currentIndex = newElements.findIndex(el => el.id === element.id);
+                                      if (currentIndex > 0) {
+                                        [newElements[currentIndex], newElements[currentIndex - 1]] =
+                                        [newElements[currentIndex - 1], newElements[currentIndex]];
+                                        // orderを再設定
+                                        newElements.forEach((el, idx) => el.order = idx);
+                                        setNodeForm(current => ({ ...current, innerElements: newElements }));
+                                      }
+                                    }}
+                                  >
+                                    ↑
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                                    disabled={index === nodeForm.innerElements.length - 1}
+                                    onClick={() => {
+                                      const newElements = [...nodeForm.innerElements];
+                                      const currentIndex = newElements.findIndex(el => el.id === element.id);
+                                      if (currentIndex < newElements.length - 1) {
+                                        [newElements[currentIndex], newElements[currentIndex + 1]] =
+                                        [newElements[currentIndex + 1], newElements[currentIndex]];
+                                        // orderを再設定
+                                        newElements.forEach((el, idx) => el.order = idx);
+                                        setNodeForm(current => ({ ...current, innerElements: newElements }));
+                                      }
+                                    }}
+                                  >
+                                    ↓
+                                  </button>
+                                  {/* 削除ボタン */}
+                                  <button
+                                    type="button"
+                                    className="text-xs font-semibold text-rose-600 hover:text-rose-700"
+                                    onClick={() =>
+                                      setNodeForm((current) => ({
+                                        ...current,
+                                        innerElements: current.innerElements.filter(el => el.id !== element.id),
+                                      }))
+                                    }
+                                  >
+                                    削除
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </>
                 ) : isType ? (
                   <>
@@ -6936,6 +7424,7 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onEdgeUpdate={onEdgeUpdate}
+        onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onNodeDoubleClick={onNodeDoubleClick}
         onEdgeDoubleClick={onEdgeDoubleClick}
