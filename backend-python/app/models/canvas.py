@@ -20,7 +20,7 @@ class ClassMethod(BaseModel):
 
 # ノード種類
 NodeKind = Literal['start', 'end', 'normal']
-SectionType = Literal['function', 'class', 'interface', 'main', 'try', 'catch', 'while', 'for']
+SectionType = Literal['function', 'class', 'interface', 'main', 'try', 'catch', 'while', 'for', 'if', 'elif', 'else']
 NodeControlType = Literal['flow', 'condition', 'loop', 'function', 'class']
 
 class LogicNodeData(BaseModel):
@@ -39,6 +39,7 @@ class SectionNodeData(BaseModel):
     controlType: Optional[NodeControlType] = None
     note: Optional[str] = None
     entryNodeId: Optional[str] = None
+    instanceOfSectionId: Optional[str] = None
     functionArgs: Optional[List[TypedField]] = None
     functionReturnType: Optional[str] = None
     functionReturnValue: Optional[str] = None

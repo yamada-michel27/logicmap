@@ -1,0 +1,7 @@
+{
+  "code": "def find_number(arr, target):\n    i = 0\n    while i < len(arr):\n        if arr[i] == target:\n            return i\n        i += 1\n    return -1",
+  "options": {
+    "include_comments": true,
+    "include_docstrings": true
+  }
+}

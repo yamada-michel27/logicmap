@@ -2477,10 +2477,20 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
         setEdges([]);
 
         // 新しいノードとエッジをセット
-        const newNodes = snapshot.nodes.map((node: any) => ({
-          ...node,
-          position: node.position,
-        }));
+        const newNodes = snapshot.nodes.map((node: any) => {
+          console.log(`[FRONTEND_SIZE] Processing node ${node.id}: type=${node.type}, width=${node.width}, height=${node.height}`);
+
+          return {
+            ...node,
+            position: node.position,
+            // Pythonで計算された動的サイズを強制的に適用
+            style: {
+              width: node.width || (node.type === 'sectionNode' ? SECTION_DEFAULT_WIDTH : 160),
+              height: node.height || (node.type === 'sectionNode' ? SECTION_DEFAULT_HEIGHT : 80),
+              ...node.style
+            }
+          };
+        });
 
         const newEdges = snapshot.edges.map((edge: any) => ({
           ...edge,

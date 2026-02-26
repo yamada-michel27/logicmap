@@ -1,0 +1,7 @@
+{
+  "code": "def check_grade(score):\n    if score >= 90:\n        grade = 'A'\n        print('Excellent!')\n    elif score >= 80:\n        grade = 'B'\n        print('Good!')\n    else:\n        grade = 'C'\n        print('Try harder!')\n    return grade",
+  "options": {
+    "include_comments": true,
+    "include_docstrings": true
+  }
+}
