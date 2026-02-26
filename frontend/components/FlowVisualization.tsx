@@ -589,11 +589,11 @@ function formatValidationLabel(rule: ValidationRule) {
 }
 
 const CATCH_OPTIONS = [
-  { value: 'ValueError', label: 'ValueError' },
-  { value: 'TypeError', label: 'TypeError' },
-  { value: 'KeyError', label: 'KeyError' },
-  { value: 'IndexError', label: 'IndexError' },
-  { value: 'CustomError', label: 'CustomError' },
+  { value: 'NullPointerException', label: '参照エラー' },
+  { value: 'IllegalArgumentException', label: '引数エラー' },
+  { value: 'FileNotFoundException', label: 'ファイルエラー' },
+  { value: 'NetworkException', label: '通信エラー' },
+  { value: 'ValidationException', label: '検証エラー' },
   { value: 'other', label: 'その他' },
 ] as const;
 
@@ -2252,7 +2252,8 @@ export default function FlowVisualization() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `flow-structure-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.txt`;
+      const fileName = currentFlowName || 'flow-structure';
+      link.download = `${fileName}.txt`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -2261,7 +2262,7 @@ export default function FlowVisualization() {
       console.error('ダウンロードに失敗しました:', err);
       alert('ダウンロードに失敗しました');
     }
-  }, [exportedText]);
+  }, [exportedText, currentFlowName]);
 
   const deleteSavedFlow = useCallback(
     async (flowId: string) => {
@@ -3085,7 +3086,7 @@ export default function FlowVisualization() {
 
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-        <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
+        <div className="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
           <h3 className="text-lg font-semibold text-gray-900">
             {isEdit ? 'エッジを編集' : '制御構文を選択'}
           </h3>
@@ -3302,7 +3303,7 @@ export default function FlowVisualization() {
     if (!pendingMemoClientPosition && !pendingMemoEdit) return null;
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-        <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+        <div className="w-full max-w-md max-h-[80vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
           <h3 className="text-lg font-semibold text-gray-900">
             {isEdit ? 'メモを編集' : 'メモを追加'}
           </h3>
@@ -3416,7 +3417,7 @@ export default function FlowVisualization() {
 
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-        <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
+        <div className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
           <h3 className="text-lg font-semibold text-gray-900">
             {isEdit ? 'ノード種別を変更' : 'ノード種別を選択'}
           </h3>
@@ -3456,7 +3457,7 @@ export default function FlowVisualization() {
                   <>
                     <div>
                       <label className="text-xs font-semibold text-gray-700">
-                        {isMainSection ? '表示名' : '表示名（関数名/クラス名）'}
+                        {isMainSection || isCatchSection ? '表示名' : '表示名（関数名/クラス名）'}
                       </label>
                       <input
                         type="text"
@@ -3468,6 +3469,8 @@ export default function FlowVisualization() {
                         placeholder={
                           isMainSection
                             ? '例: MainProcess'
+                            : isCatchSection
+                            ? '例: ErrorHandler'
                             : '例: fetchUser / UserService'
                         }
                       />
@@ -4549,7 +4552,7 @@ export default function FlowVisualization() {
                                   catchExceptionOther: event.target.value,
                                 }))
                               }
-                              placeholder="例: CustomNotFoundError"
+                              placeholder="例: UserNotFoundException"
                             />
                           </div>
                         ) : null}
@@ -4872,7 +4875,7 @@ export default function FlowVisualization() {
     if (!isExportModalOpen) return null;
     return (
       <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
-        <div className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl">
+        <div className="w-full max-w-2xl max-h-[80vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900">フロー構造エクスポート</h3>
             <div className="flex gap-2">
