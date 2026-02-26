@@ -79,7 +79,7 @@ export default function FlowsPage() {
   }, [fetchFlows]);
 
   const handleFlowClick = (flowId: string) => {
-    router.push(`/flows/${flowId}`);
+    router.push(`/?flowId=${flowId}`);
   };
 
   const handleBackToEditor = () => {
