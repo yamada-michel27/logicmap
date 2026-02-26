@@ -1496,7 +1496,6 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     useState<EdgeControlType>(DEFAULT_EDGE_CONTROL);
   const [edgeForm, setEdgeForm] = useState<EdgeFormState>({ ...EMPTY_EDGE_FORM });
   const [pendingStamp, setPendingStamp] = useState<StampType | null>(null);
-  const [pendingTypeNode, setPendingTypeNode] = useState<PythonType | null>(null);
   const [pendingTypeEdit, setPendingTypeEdit] = useState<{ id: string } | null>(null);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
@@ -3568,25 +3567,13 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
         setPendingStamp(null);
         return;
       }
-      if (pendingTypeNode) {
-        const instance = reactFlowInstance.current;
-        if (!instance) return;
-        const flowPosition = instance.screenToFlowPosition({
-          x: event.clientX,
-          y: event.clientY,
-        });
-        const typeNode = createTypeNode({ pythonType: pendingTypeNode, position: flowPosition });
-        setNodes((currentNodes) => [...currentNodes, typeNode]);
-        setPendingTypeNode(null);
-        return;
-      }
       const now = Date.now();
       const lastClick = lastPaneClickAt.current;
       const isDoubleClick = lastClick !== null && now - lastClick < 320;
       lastPaneClickAt.current = now;
       recordDebugEvent(isDoubleClick ? 'pane double click' : 'pane click', event);
     },
-    [createStampNode, createTypeNode, pendingStamp, pendingTypeNode, recordDebugEvent, setNodes]
+    [createStampNode, pendingStamp, recordDebugEvent, setNodes]
   );
 
   const applyControlType = useCallback(
@@ -6920,32 +6907,10 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
               ))}
             </select>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">型</span>
-            <select
-              value={pendingTypeNode ?? ''}
-              className="rounded-md border border-gray-300 bg-white px-2 py-1 text-xs text-gray-900"
-              onChange={(event) =>
-                setPendingTypeNode(event.target.value ? (event.target.value as PythonType) : null)
-              }
-            >
-              <option value="">選択</option>
-              {PYTHON_TYPE_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.name} - {option.description}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
         {pendingStamp ? (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 shadow-sm">
             クリックでスタンプを配置
-          </div>
-        ) : null}
-        {pendingTypeNode ? (
-          <div className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700 shadow-sm">
-            クリックで型ノードを配置: {pendingTypeNode}
           </div>
         ) : null}
       </div>
