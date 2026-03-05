@@ -37,969 +37,106 @@ import { NodeResizer } from '@reactflow/node-resizer';
 import 'reactflow/dist/style.css';
 import '@reactflow/node-resizer/dist/style.css';
 
-type NodeKind = 'start' | 'end' | 'normal' | 'break' | 'continue' | 'return';
-type SectionType = 'function' | 'class' | 'interface' | 'main' | 'try' | 'catch' | 'while' | 'for' | 'if' | 'elif' | 'else';
-
-const EDGE_CONTROL_OPTIONS = ['flow', 'if', 'elif', 'else', 'break', 'continue'] as const;
-
-type EdgeControlType = (typeof EDGE_CONTROL_OPTIONS)[number];
-type NodeControlType = EdgeControlType | 'function' | 'class';
-
-const PYTHON_TYPE_OPTIONS = [
-  { id: 'int', name: 'int', description: '整数型' },
-  { id: 'float', name: 'float', description: '浮動小数点型' },
-  { id: 'bool', name: 'bool', description: '真偽値型' },
-  { id: 'str', name: 'str', description: '文字列型' },
-  { id: 'list', name: 'list', description: 'リスト型' },
-  { id: 'tuple', name: 'tuple', description: 'タプル型' },
-  { id: 'dict', name: 'dict', description: '辞書型' },
-  { id: 'set', name: 'set', description: '集合型' },
-  { id: 'None', name: 'None', description: 'None型' },
-  { id: 'Optional', name: 'Optional', description: 'オプショナル型' },
-  { id: 'Union', name: 'Union', description: 'ユニオン型' },
-  { id: 'Any', name: 'Any', description: '任意型' },
-] as const;
-
-type PythonType = (typeof PYTHON_TYPE_OPTIONS)[number]['id'];
-
-type TypedField = {
-  name: string;
-  type: string;
-};
-
-type ValidationRule = {
-  target: string;
-  rule: string;
-  message: string;
-};
-
-type ClassMethod = {
-  name: string;
-  args: TypedField[];
-  returns: string;
-  note: string;
-};
-
-type LogicNodeData = {
-  label?: string;
-  nodeKind: NodeKind;
-  seq: number;
-  controlType?: NodeControlType;
-  condition?: string;
-  note?: string;
-  instanceOfSectionId?: string;
-};
-
-type SectionNodeData = {
-  label: string;
-  sectionType: SectionType;
-  seq: number;
-  controlType?: NodeControlType;
-  note?: string;
-  entryNodeId?: string;
-  functionArgs?: TypedField[];
-  functionReturnType?: string;
-  functionReturnValue?: string;
-  loopCondition?: string;
-  catchException?: string;
-  classConstructorArgs?: TypedField[];
-  classMembers?: TypedField[];
-  classMethods?: ClassMethod[];
-  interfaceMembers?: TypedField[];
-  interfaceMethods?: ClassMethod[];
-  validations?: ValidationRule[];
-};
-
-const STAMP_OPTIONS = [
-  { id: 'question', emoji: '❓', label: '疑問' },
-  { id: 'idea', emoji: '💡', label: 'アイデア' },
-  { id: 'warn', emoji: '⚠️', label: '注意' },
-  { id: 'check', emoji: '✅', label: '確認' },
-  { id: 'test', emoji: '🧪', label: '検証' },
-  { id: 'todo', emoji: '📝', label: 'TODO' },
-  { id: 'consult', emoji: '🚩', label: '要相談' },
-] as const;
-
-const TEMPLATE_OPTIONS = [
-  { id: 'dfs', name: 'DFS（深さ優先探索）', description: 'スタックを使用した深さ優先探索' },
-  { id: 'bfs', name: 'BFS（幅優先探索）', description: 'キューを使用した幅優先探索' },
-  { id: 'binary_search', name: '二分探索', description: 'ソート済み配列での効率的な探索' },
-  { id: 'a_star', name: 'A*探索', description: 'ヒューリスティックを使用した最短経路探索' },
-] as const;
-
-type StampType = (typeof STAMP_OPTIONS)[number]['id'];
-type TemplateType = (typeof TEMPLATE_OPTIONS)[number]['id'];
-
-type MemoNodeData = {
-  text: string;
-  seq: number;
-};
-
-type StampNodeData = {
-  stamp: StampType;
-  seq: number;
-  onDelete?: (nodeId: string) => void;
-};
-
-// Phase8: 変数ノード統合
-type VariableOperationType = 'declare' | 'assign';
-type VariableScope = 'global' | 'local';
-
-type VariableNodeData = {
-  // Phase8: 変数ノード統合
-  operationType: VariableOperationType; // 宣言 or 変更
-  seq: number;
-
-  // 宣言モード用フィールド
-  pythonType?: PythonType; // 型（宣言モード時のみ必須）
-  variableName?: string; // 変数名（宣言モード時のみ必須）
-  initialValue?: string; // 初期値
-  scope?: VariableScope; // 変数のスコープ
-
-  // 変更モード用フィールド
-  targetVariable?: string; // 変更対象の変数名（変更モード時のみ必須）
-  newValue?: string; // 新しい値（変更モード時のみ必須）
-
-  // 型固有のパラメータ（宣言モード時のみ使用）
-  elementType?: string; // list, tuple, setの要素型
-  keyType?: string; // dictのキー型
-  valueType?: string; // dictの値型
-  innerType?: string; // Optionalの内部型
-  unionTypes?: string[]; // Unionの型リスト
-  genericParams?: string; // その他の型パラメータ用
-
-  // 共通フィールド
-  note?: string;
-};
-
-// 後方互換性のためTypeNodeDataも残す
-type TypeNodeData = VariableNodeData;
-
-type FlowNodeData = LogicNodeData | SectionNodeData | MemoNodeData | StampNodeData | VariableNodeData;
-
-type LogicEdgeData = {
-  controlType: EdgeControlType;
-  condition?: string;
-  note?: string;
-  validations?: ValidationRule[];
-  parallelOffset?: number;
-  onEdit?: (edgeId: string) => void;
-};
-
-type StoredNode = Pick<
-  Node<FlowNodeData>,
-  'id' | 'type' | 'position' | 'data' | 'parentNode' | 'extent' | 'style' | 'width' | 'height'
->;
-
-type StoredEdge = Pick<
-  Edge<LogicEdgeData>,
-  | 'id'
-  | 'type'
-  | 'source'
-  | 'target'
-  | 'sourceHandle'
-  | 'targetHandle'
-  | 'data'
-  | 'style'
-  | 'markerEnd'
-  | 'markerStart'
->;
-
-type FlowSnapshot = {
-  version: number;
-  nodes: StoredNode[];
-  edges: StoredEdge[];
-  nextNodeSeq: number;
-  nextEdgeSeq: number;
-};
-
-type SavedFlowSummary = {
-  id: string;
-  name: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-type SavedFlowDetail = SavedFlowSummary & {
-  snapshot: FlowSnapshot;
-};
-
-type NodeRect = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
-function toRgba(hex: string, alpha: number) {
-  const normalized = hex.replace('#', '');
-  if (normalized.length !== 6) return `rgba(248, 250, 252, ${alpha})`;
-  const r = Number.parseInt(normalized.slice(0, 2), 16);
-  const g = Number.parseInt(normalized.slice(2, 4), 16);
-  const b = Number.parseInt(normalized.slice(4, 6), 16);
-  if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
-    return `rgba(248, 250, 252, ${alpha})`;
-  }
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-type StyleKey = EdgeControlType | SectionType | 'return';
-
-const CONTROL_STYLE: Record<
+import type {
+  NodeKind,
+  SectionType,
+  EdgeControlType,
+  NodeControlType,
+  PythonType,
+  TypedField,
+  ValidationRule,
+  ClassMethod,
+  LogicNodeData,
+  SectionNodeData,
+  MemoNodeData,
+  StampNodeData,
+  VariableOperationType,
+  VariableScope,
+  VariableNodeData,
+  TypeNodeData,
+  FlowNodeData,
+  LogicEdgeData,
+  StoredNode,
+  StoredEdge,
+  FlowSnapshot,
+  SavedFlowSummary,
+  SavedFlowDetail,
+  NodeRect,
   StyleKey,
-  { label: string; color: string; edgeDash?: string; nodeBg?: string; modalLabel?: string }
-> = {
-  flow: { label: '', color: '#64748b', modalLabel: '通常（ラベルなし）', nodeBg: '#f8fafc' },
-  while: { label: 'while', color: '#2563eb', edgeDash: '6 4', nodeBg: '#dbeafe' },
-  for: { label: 'for', color: '#0f766e', edgeDash: '6 4', nodeBg: '#ccfbf1' },
-  if: { label: 'if', color: '#4f46e5', nodeBg: '#e0e7ff' },
-  elif: { label: 'elif', color: '#4f46e5', nodeBg: '#e0e7ff' },
-  else: { label: 'else', color: '#4f46e5', nodeBg: '#e0e7ff' },
-  break: { label: 'break', color: '#b91c1c', edgeDash: '4 4', nodeBg: '#fecaca' },
-  continue: { label: 'continue', color: '#c2410c', edgeDash: '2 4', nodeBg: '#fed7aa' },
-  return: { label: 'return', color: '#059669', nodeBg: '#d1fae5' },
-  try: { label: 'try', color: '#15803d', edgeDash: '4 2', nodeBg: '#dcfce7' },
-  catch: { label: 'catch', color: '#dc2626', edgeDash: '4 2', nodeBg: '#fecaca' },
-  function: { label: 'function', color: '#0e7490', nodeBg: '#ecfeff' },
-  class: { label: 'class', color: '#1d4ed8', nodeBg: '#eff6ff' },
-  interface: { label: 'interface', color: '#0ea5e9', nodeBg: '#e0f2fe' },
-  main: { label: 'main', color: '#f59e0b', nodeBg: '#fef3c7' },
-};
+  InnerElement,
+  NodeFormState,
+  EdgeFormState,
+  NodeOption,
+  StampType,
+  TemplateType,
+} from './flow/types';
+import {
+  EDGE_CONTROL_OPTIONS,
+  PYTHON_TYPE_OPTIONS,
+  STAMP_OPTIONS,
+  TEMPLATE_OPTIONS,
+} from './flow/types';
+import {
+  CONTROL_STYLE,
+  SECTION_MIN_WIDTH,
+  SECTION_MIN_HEIGHT,
+  SECTION_DEFAULT_WIDTH,
+  SECTION_DEFAULT_HEIGHT,
+  MEMO_MIN_WIDTH,
+  MEMO_MIN_HEIGHT,
+  MEMO_DEFAULT_WIDTH,
+  MEMO_DEFAULT_HEIGHT,
+  STAMP_SIZE,
+  EDGE_STROKE_WIDTH,
+  EDGE_PARALLEL_OFFSET,
+  EDGE_HIT_RADIUS,
+  INSTANCE_OFFSET_X,
+  INSTANCE_OFFSET_Y,
+  DEFAULT_EDGE_CONTROL,
+  FLOW_STORAGE_VERSION,
+  EMPTY_NODE_FORM,
+  EMPTY_EDGE_FORM,
+  NODE_OPTIONS,
+  CATCH_OPTIONS,
+} from './flow/constants';
+import { apiFetch } from './flow/api';
+import {
+  toRgba,
+  getNodeRect,
+  getHandlePoint,
+  findSectionAtPoint,
+  getBaseNodeTint,
+  getLogicNodeLabel,
+  getNodeDisplayLabel,
+  buildClassInstanceLabel,
+  getNodeOptionForNode,
+  isEventFromNodeOrEdge,
+  normalizeText,
+  cloneJson,
+  formatSaveLabel,
+  formatTypedFields,
+  formatValidationRules,
+  parseCatchValue,
+  buildCatchValue,
+  getAvailableInnerElements,
+  createEdge,
+  buildConditionForControl,
+  getConditionMeta,
+  isSectionEntryConnection,
+  getIfControlOptions,
+  buildEdgeLabel,
+  ensureEdgeData,
+  normalizeParallelOffsets,
+} from './flow/utils';
+import {
+  serializeNode,
+  serializeEdge,
+  hydrateNode,
+  hydrateEdge,
+  getNextNodeSeqFromNodes,
+  getNextEdgeSeqFromEdges,
+} from './flow/serialization';
 
-const SECTION_MIN_WIDTH = 240;
-const SECTION_MIN_HEIGHT = 160;
-const SECTION_DEFAULT_WIDTH = 320;
-const SECTION_DEFAULT_HEIGHT = 220;
-const MEMO_MIN_WIDTH = 180;
-const MEMO_MIN_HEIGHT = 120;
-const MEMO_DEFAULT_WIDTH = 260;
-const MEMO_DEFAULT_HEIGHT = 180;
-const STAMP_SIZE = 48;
-const EDGE_STROKE_WIDTH = 3;
-const EDGE_PARALLEL_OFFSET = 24;
-const EDGE_HIT_RADIUS = 28;
-const INSTANCE_OFFSET_X = 220;
-const INSTANCE_OFFSET_Y = 80;
-const DEFAULT_EDGE_CONTROL: EdgeControlType = 'flow';
-const FLOW_STORAGE_VERSION = 1;
-const USER_ID_STORAGE_KEY = 'logicmap:user-id';
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
-
-// 内部要素の定義
-type InnerElement = {
-  id: string;
-  type: 'section' | 'node';
-  sectionType?: SectionType;
-  nodeKind?: NodeKind;
-  label: string;
-  order: number;
-};
-
-type NodeFormState = {
-  label: string;
-  condition: string;
-  note: string;
-  entryNodeId: string;
-  functionArgs: TypedField[];
-  functionReturnType: string;
-  functionReturnValue: string;
-  loopCondition: string;
-  catchExceptionType: string;
-  catchExceptionOther: string;
-  classConstructorArgs: TypedField[];
-  classMembers: TypedField[];
-  classMethods: ClassMethod[];
-  interfaceMembers: TypedField[];
-  interfaceMethods: ClassMethod[];
-  validations: ValidationRule[];
-  // Phase7: 内部要素管理
-  innerElements: InnerElement[];
-};
-
-type EdgeFormState = {
-  condition: string;
-  note: string;
-  validations: ValidationRule[];
-};
-
-const EMPTY_NODE_FORM: NodeFormState = {
-  label: '',
-  condition: '',
-  note: '',
-  entryNodeId: '',
-  functionArgs: [],
-  functionReturnType: '',
-  functionReturnValue: '',
-  loopCondition: '',
-  catchExceptionType: '',
-  catchExceptionOther: '',
-  classConstructorArgs: [],
-  classMembers: [],
-  classMethods: [],
-  interfaceMembers: [],
-  interfaceMethods: [],
-  validations: [],
-  // Phase7: 内部要素管理
-  innerElements: [],
-};
-
-const EMPTY_EDGE_FORM: EdgeFormState = {
-  condition: '',
-  note: '',
-  validations: [],
-};
-
-type NodeOption = {
-  label: string;
-  kind: NodeKind | 'section' | 'variable' | 'type';
-  sectionType?: SectionType;
-  nodeLabel?: string;
-};
-
-const NODE_OPTIONS: NodeOption[] = [
-  { label: 'Start', kind: 'start' },
-  { label: 'End', kind: 'end' },
-  { label: '通常', kind: 'normal', nodeLabel: '' },
-  { label: CONTROL_STYLE.break.label, kind: 'break' },
-  { label: CONTROL_STYLE.continue.label, kind: 'continue' },
-  { label: CONTROL_STYLE.return.label, kind: 'return' },
-  { label: CONTROL_STYLE.function.label, kind: 'section', sectionType: 'function' },
-  { label: CONTROL_STYLE.class.label, kind: 'section', sectionType: 'class' },
-  { label: CONTROL_STYLE.interface.label, kind: 'section', sectionType: 'interface' },
-  { label: CONTROL_STYLE.main.label, kind: 'section', sectionType: 'main' },
-  { label: CONTROL_STYLE.while.label, kind: 'section', sectionType: 'while' },
-  { label: CONTROL_STYLE.for.label, kind: 'section', sectionType: 'for' },
-  { label: CONTROL_STYLE.if.label, kind: 'section', sectionType: 'if' },
-  { label: CONTROL_STYLE.elif.label, kind: 'section', sectionType: 'elif' },
-  { label: CONTROL_STYLE.else.label, kind: 'section', sectionType: 'else' },
-  { label: CONTROL_STYLE.try.label, kind: 'section', sectionType: 'try' },
-  { label: CONTROL_STYLE.catch.label, kind: 'section', sectionType: 'catch' },
-  { label: '変数ノード', kind: 'variable' },
-];
-
-function getNodeRect(node: Node<FlowNodeData>): NodeRect | null {
-  const width =
-    node.width ?? (typeof node.style?.width === 'number' ? node.style.width : undefined);
-  const height =
-    node.height ?? (typeof node.style?.height === 'number' ? node.style.height : undefined);
-  if (!width || !height) return null;
-  const position = node.positionAbsolute ?? node.position;
-  return { x: position.x, y: position.y, width, height };
-}
-
-function getHandlePoint(rect: NodeRect, handleId?: string | null) {
-  const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-  if (!handleId) return center;
-  const id = handleId.toLowerCase();
-  if (id.includes('left')) return { x: rect.x, y: rect.y + rect.height / 2 };
-  if (id.includes('right')) return { x: rect.x + rect.width, y: rect.y + rect.height / 2 };
-  if (id.includes('top')) return { x: rect.x + rect.width / 2, y: rect.y };
-  if (id.includes('bottom')) return { x: rect.x + rect.width / 2, y: rect.y + rect.height };
-  return center;
-}
-
-function findSectionAtPoint(
-  point: XYPosition,
-  sectionNodes: Node<SectionNodeData>[]
-): Node<SectionNodeData> | null {
-  let best: Node<SectionNodeData> | null = null;
-  let bestArea = Number.POSITIVE_INFINITY;
-  for (const section of sectionNodes) {
-    const rect = getNodeRect(section);
-    if (!rect) continue;
-    const inside =
-      point.x >= rect.x &&
-      point.x <= rect.x + rect.width &&
-      point.y >= rect.y &&
-      point.y <= rect.y + rect.height;
-    if (!inside) continue;
-    const area = rect.width * rect.height;
-    if (area < bestArea) {
-      best = section;
-      bestArea = area;
-    }
-  }
-  return best;
-}
-
-function getBaseNodeTint(nodeKind: NodeKind) {
-  if (nodeKind === 'start') return '#ecfdf5';
-  if (nodeKind === 'end') return '#fff1f2';
-  if (nodeKind === 'break') return '#fecaca';
-  if (nodeKind === 'continue') return '#fed7aa';
-  if (nodeKind === 'return') return '#d1fae5';
-  return '#ffffff';
-}
-
-function getLogicNodeLabel(data: LogicNodeData) {
-  if (data.label && data.label.length > 0) return data.label;
-  if (data.nodeKind === 'start') return 'Start';
-  if (data.nodeKind === 'end') return 'End';
-  if (data.nodeKind === 'break') return 'break';
-  if (data.nodeKind === 'continue') return 'continue';
-  if (data.nodeKind === 'return') return 'return';
-  return '通常';
-}
-
-function getNodeDisplayLabel(node: Node<FlowNodeData>) {
-  if (node.type === 'sectionNode') {
-    const data = node.data as SectionNodeData;
-    const sectionStyle = CONTROL_STYLE[data.sectionType] || CONTROL_STYLE.flow;
-    return data.label || sectionStyle.label;
-  }
-  if (node.type === 'memoNode') return 'メモ';
-  if (node.type === 'stampNode') return 'スタンプ';
-  if (node.type === 'typeNode') {
-    const data = node.data as TypeNodeData;
-    return data.pythonType + (data.genericParams ? `[${data.genericParams}]` : '');
-  }
-  return getLogicNodeLabel(node.data as LogicNodeData);
-}
-
-function buildClassInstanceLabel(classNode: Node<SectionNodeData>) {
-  const baseLabel = classNode.data.label?.trim() ?? '';
-  const displayLabel = baseLabel.length > 0 ? baseLabel : CONTROL_STYLE.class.label;
-  return `new ${displayLabel}()`;
-}
-
-function getNodeOptionForNode(node: Node<FlowNodeData>): NodeOption | null {
-  if (node.type === 'sectionNode') {
-    const data = node.data as SectionNodeData;
-    return (
-      NODE_OPTIONS.find(
-        (option) => option.kind === 'section' && option.sectionType === data.sectionType
-      ) ?? null
-    );
-  }
-  if (node.type === 'typeNode') {
-    return NODE_OPTIONS.find((option) => option.kind === 'type') ?? null;
-  }
-  if (node.type !== 'logicNode') return null;
-  const data = node.data as LogicNodeData;
-  return NODE_OPTIONS.find((option) => option.kind === data.nodeKind) ?? null;
-}
-
-function isEventFromNodeOrEdge(event: ReactMouseEvent) {
-  const target = event.target;
-  if (!(target instanceof Element)) return false;
-  return Boolean(target.closest('.react-flow__node, .react-flow__edge'));
-}
-
-function normalizeText(value: string) {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
-}
-
-function cloneJson<T>(value: T): T {
-  if (value == null) return value;
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function formatSaveLabel(date: Date) {
-  return date.toLocaleString('ja-JP', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function getUserId() {
-  if (typeof window === 'undefined') return 'unknown';
-  const stored = window.localStorage.getItem(USER_ID_STORAGE_KEY);
-  if (stored) return stored;
-  const generated =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `user-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  window.localStorage.setItem(USER_ID_STORAGE_KEY, generated);
-  return generated;
-}
-
-function resolveApiUrl(path: string) {
-  if (!API_BASE_URL) return path;
-  const base = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
-  return `${base}${path}`;
-}
-
-async function apiFetch<T>(path: string, options: RequestInit = {}) {
-  const headers = new Headers(options.headers ?? {});
-  headers.set('X-User-Id', getUserId());
-  if (!headers.has('Content-Type')) {
-    headers.set('Content-Type', 'application/json');
-  }
-  const url = resolveApiUrl(path);
-  console.log(`[DEBUG] apiFetch: ${options.method || 'GET'} ${url}`, { userId: getUserId(), path, API_BASE_URL });
-  const response = await fetch(url, { ...options, headers });
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || response.statusText);
-  }
-  if (response.status === 204) {
-    return null as T;
-  }
-  return (await response.json()) as T;
-}
-
-function serializeNode(node: Node<FlowNodeData>): StoredNode {
-  let data: FlowNodeData;
-  if (node.type === 'stampNode') {
-    const stampData = node.data as StampNodeData;
-    data = { stamp: stampData.stamp, seq: stampData.seq };
-  } else if (node.type === 'memoNode') {
-    const memoData = node.data as MemoNodeData;
-    data = { text: memoData.text, seq: memoData.seq };
-  } else if (node.type === 'typeNode') {
-    const typeData = node.data as TypeNodeData;
-    data = {
-      operationType: typeData.operationType,
-      pythonType: typeData.pythonType,
-      seq: typeData.seq,
-      variableName: typeData.variableName,
-      initialValue: typeData.initialValue,
-      elementType: typeData.elementType,
-      keyType: typeData.keyType,
-      valueType: typeData.valueType,
-      innerType: typeData.innerType,
-      unionTypes: typeData.unionTypes,
-      note: typeData.note,
-      genericParams: typeData.genericParams,
-    };
-  } else if (node.type === 'logicNode') {
-    const logicData = node.data as LogicNodeData;
-    data = {
-      label: logicData.label,
-      nodeKind: logicData.nodeKind,
-      seq: logicData.seq,
-      controlType: logicData.controlType,
-      condition: logicData.condition,
-      note: logicData.note,
-      instanceOfSectionId: logicData.instanceOfSectionId,
-    };
-  } else {
-    data = node.data as SectionNodeData;
-  }
-  return {
-    id: node.id,
-    type: node.type,
-    position: { ...node.position },
-    data: cloneJson(data),
-    parentNode: node.parentNode,
-    extent: node.extent,
-    style: node.style ? { ...node.style } : undefined,
-    width: node.width,
-    height: node.height,
-  };
-}
-
-function serializeEdge(edge: Edge<LogicEdgeData>): StoredEdge {
-  const data = ensureEdgeData(edge);
-  return {
-    id: edge.id,
-    type: 'logicEdge',
-    source: edge.source,
-    target: edge.target,
-    sourceHandle: edge.sourceHandle,
-    targetHandle: edge.targetHandle,
-    data: cloneJson({
-      controlType: data.controlType,
-      condition: data.condition,
-      note: data.note,
-      validations: data.validations ?? [],
-      parallelOffset: data.parallelOffset ?? 0,
-    }),
-  };
-}
-
-function hydrateNode(node: StoredNode): Node<FlowNodeData> {
-  return {
-    ...node,
-    position: { ...node.position },
-    data: cloneJson(node.data),
-    style: node.style ? { ...node.style } : undefined,
-  };
-}
-
-function hydrateEdge(edge: StoredEdge): Edge<LogicEdgeData> {
-  const base = {
-    ...edge,
-    type: 'logicEdge',
-    data: edge.data ?? { controlType: DEFAULT_EDGE_CONTROL },
-  };
-  return {
-    ...base,
-    data: ensureEdgeData(base as Edge<LogicEdgeData>),
-  };
-}
-
-function getNextNodeSeqFromNodes(nodes: StoredNode[]) {
-  const maxSeq = nodes.reduce((max, node) => {
-    const seq = (node.data as FlowNodeData).seq;
-    return typeof seq === 'number' && seq > max ? seq : max;
-  }, 0);
-  return Math.max(1, maxSeq + 1);
-}
-
-function getNextEdgeSeqFromEdges(edges: StoredEdge[]) {
-  const maxSeq = edges.reduce((max, edge) => {
-    const match = edge.id.match(/edge-(\d+)/);
-    const seq = match ? Number(match[1]) : 0;
-    return Number.isFinite(seq) && seq > max ? seq : max;
-  }, 0);
-  return Math.max(1, maxSeq + 1);
-}
-
-function formatTypedFields(items?: TypedField[]) {
-  if (!items || !Array.isArray(items) || items.length === 0) return [];
-  return items
-    .map((item) => {
-      const name = item.name?.trim() ?? '';
-      const type = item.type?.trim() ?? '';
-      if (!name && !type) return null;
-      if (name && type) return `${name} : ${type}`;
-      return name || type;
-    })
-    .filter(Boolean) as string[];
-}
-
-function formatValidationRules(items?: ValidationRule[]) {
-  if (!items || !Array.isArray(items) || items.length === 0) return [];
-  return items
-    .map((rule) => {
-      const target = rule.target?.trim() ?? '';
-      const content = rule.rule?.trim() ?? '';
-      const message = rule.message?.trim() ?? '';
-      if (!target && !content && !message) return null;
-      const base = [target, content].filter((value) => value.length > 0).join(' ');
-      if (message.length > 0) {
-        return base.length > 0 ? `${base} (${message})` : message;
-      }
-      return base;
-    })
-    .filter(Boolean) as string[];
-}
-
-function formatValidationLabel(rule: ValidationRule) {
-  const target = rule.target?.trim() ?? '';
-  const content = rule.rule?.trim() ?? '';
-  const message = rule.message?.trim() ?? '';
-  const base = [target, content].filter((value) => value.length > 0).join(' ');
-  if (message.length > 0) {
-    return base.length > 0 ? `${base} (${message})` : message;
-  }
-  return base;
-}
-
-const CATCH_OPTIONS = [
-  { value: 'NullPointerException', label: '参照エラー' },
-  { value: 'IllegalArgumentException', label: '引数エラー' },
-  { value: 'FileNotFoundException', label: 'ファイルエラー' },
-  { value: 'NetworkException', label: '通信エラー' },
-  { value: 'ValidationException', label: '検証エラー' },
-  { value: 'other', label: 'その他' },
-] as const;
-
-function parseCatchValue(value: string) {
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return { exceptionType: '', exceptionOther: '' };
-  }
-  const matched = CATCH_OPTIONS.find(
-    (option) => option.value !== 'other' && option.value === trimmed
-  );
-  if (matched) {
-    return { exceptionType: matched.value, exceptionOther: '' };
-  }
-  return { exceptionType: 'other', exceptionOther: trimmed };
-}
-
-function buildCatchValue(form: NodeFormState) {
-  if (form.catchExceptionType === 'other') {
-    return normalizeText(form.catchExceptionOther);
-  }
-  return normalizeText(form.catchExceptionType);
-}
-
-// Phase7: セクション種別に応じた追加可能な内部要素を取得
-function getAvailableInnerElements(sectionType: SectionType): { type: 'section' | 'node', sectionType?: SectionType, nodeKind?: NodeKind, label: string }[] {
-  const available = [];
-
-  if (sectionType === 'function') {
-    // 関数セクション内で追加可能
-    available.push(
-      { type: 'section' as const, sectionType: 'for' as const, label: 'for文' },
-      { type: 'section' as const, sectionType: 'while' as const, label: 'while文' },
-      { type: 'section' as const, sectionType: 'if' as const, label: 'if文' },
-      { type: 'section' as const, sectionType: 'elif' as const, label: 'elif文' },
-      { type: 'section' as const, sectionType: 'else' as const, label: 'else文' },
-      { type: 'node' as const, nodeKind: 'return' as const, label: 'return' },
-      { type: 'node' as const, nodeKind: 'normal' as const, label: '処理ノード' }
-    );
-  } else if (sectionType === 'class') {
-    // クラスセクション内で追加可能
-    available.push(
-      { type: 'section' as const, sectionType: 'for' as const, label: 'for文' },
-      { type: 'section' as const, sectionType: 'while' as const, label: 'while文' },
-      { type: 'section' as const, sectionType: 'if' as const, label: 'if文' },
-      { type: 'section' as const, sectionType: 'elif' as const, label: 'elif文' },
-      { type: 'section' as const, sectionType: 'else' as const, label: 'else文' },
-      { type: 'node' as const, nodeKind: 'normal' as const, label: '処理ノード' }
-    );
-  } else if (sectionType === 'for' || sectionType === 'while') {
-    // ループセクション内で追加可能
-    available.push(
-      { type: 'section' as const, sectionType: 'if' as const, label: 'if文' },
-      { type: 'section' as const, sectionType: 'elif' as const, label: 'elif文' },
-      { type: 'section' as const, sectionType: 'else' as const, label: 'else文' },
-      { type: 'node' as const, nodeKind: 'break' as const, label: 'break' },
-      { type: 'node' as const, nodeKind: 'continue' as const, label: 'continue' },
-      { type: 'node' as const, nodeKind: 'normal' as const, label: '処理ノード' }
-    );
-  } else if (sectionType === 'if' || sectionType === 'elif' || sectionType === 'else') {
-    // 条件分岐セクション内で追加可能
-    available.push(
-      { type: 'section' as const, sectionType: 'for' as const, label: 'for文' },
-      { type: 'section' as const, sectionType: 'while' as const, label: 'while文' },
-      { type: 'section' as const, sectionType: 'if' as const, label: 'if文' },
-      { type: 'section' as const, sectionType: 'elif' as const, label: 'elif文' },
-      { type: 'section' as const, sectionType: 'else' as const, label: 'else文' },
-      { type: 'node' as const, nodeKind: 'break' as const, label: 'break' },
-      { type: 'node' as const, nodeKind: 'continue' as const, label: 'continue' },
-      { type: 'node' as const, nodeKind: 'return' as const, label: 'return' },
-      { type: 'node' as const, nodeKind: 'normal' as const, label: '処理ノード' }
-    );
-  }
-
-  return available;
-}
-
-// Phase7: エッジ作成ヘルパー関数
-function createEdge(params: {
-  source: string;
-  target: string;
-  controlType: EdgeControlType;
-  condition?: string;
-  note?: string;
-}): Edge<LogicEdgeData> {
-  const style = CONTROL_STYLE[params.controlType] || CONTROL_STYLE.flow;
-  return {
-    id: `edge-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    type: 'logicEdge',
-    source: params.source,
-    target: params.target,
-    sourceHandle: 'h-bottom',
-    targetHandle: 'h-top',
-    data: {
-      controlType: params.controlType,
-      condition: params.condition || '',
-      note: params.note || '',
-      validations: [],
-      parallelOffset: 0
-    },
-    style: { ...style, zIndex: 1000 },
-    markerEnd: { type: MarkerType.ArrowClosed, color: style.color },
-  };
-}
-
-function buildConditionForControl(controlType: EdgeControlType, form: EdgeFormState) {
-  if (controlType === 'flow') return undefined;
-  return normalizeText(form.condition);
-}
-
-function getConditionMeta(controlType: EdgeControlType) {
-  if (controlType === 'flow') return null;
-  if (controlType === 'break') {
-    return { label: '理由', placeholder: '例: 条件を満たしたため' };
-  }
-  if (controlType === 'continue') {
-    return { label: '理由', placeholder: '例: スキップ条件に該当' };
-  }
-  if (controlType === 'if') {
-    return { label: '条件式', placeholder: '例: user.isAdmin' };
-  }
-  if (controlType === 'elif') {
-    return { label: '条件式', placeholder: '例: status === \"pending\"' };
-  }
-  if (controlType === 'else') {
-    return { label: '条件式', placeholder: '例: その他の条件' };
-  }
-  return { label: '条件式', placeholder: '条件を入力' };
-}
-
-function isSectionEntryConnection(
-  nodes: Node<FlowNodeData>[],
-  connection: Connection
-): boolean {
-  if (!connection.source || !connection.target) return false;
-  const sourceNode = nodes.find((node) => node.id === connection.source);
-  if (!sourceNode || sourceNode.type !== 'sectionNode') return false;
-  const entryNodeId = (sourceNode.data as SectionNodeData).entryNodeId;
-  if (!entryNodeId) return false;
-  const targetNode = nodes.find((node) => node.id === connection.target);
-  if (!targetNode || targetNode.type !== 'logicNode') return false;
-  if (targetNode.parentNode !== sourceNode.id) return false;
-  return entryNodeId === connection.target;
-}
-
-function getIfControlOptions(
-  sourceId: string | null | undefined,
-  edges: Edge<LogicEdgeData>[],
-  currentEdgeId?: string | null,
-  currentEdgeControl?: EdgeControlType | null
-): EdgeControlType[] {
-  if (!sourceId) return ['if', 'elif', 'else'];
-  const otherEdges = edges.filter((edge) => edge.source === sourceId && edge.id !== currentEdgeId);
-  const hasIf = otherEdges.some((edge) => edge.data?.controlType === 'if');
-  const hasElse = otherEdges.some((edge) => edge.data?.controlType === 'else');
-  let options: EdgeControlType[] = [];
-  if (!hasIf) {
-    options = ['if'];
-  } else if (hasElse) {
-    options = ['if', 'elif'];
-  } else {
-    options = ['if', 'elif', 'else'];
-  }
-  if (
-    currentEdgeControl &&
-    (currentEdgeControl === 'if' ||
-      currentEdgeControl === 'elif' ||
-      currentEdgeControl === 'else') &&
-    !options.includes(currentEdgeControl)
-  ) {
-    options = [...options, currentEdgeControl];
-  }
-  return options;
-}
-
-function buildEdgeLabel(
-  controlType: EdgeControlType,
-  condition?: string,
-  note?: string,
-  validations?: ValidationRule[]
-) {
-  const controlStyle = CONTROL_STYLE[controlType] || CONTROL_STYLE.flow;
-  const controlLabel = controlStyle.label;
-  const normalizedCondition = condition?.trim() ?? '';
-  const normalizedNote = note?.trim() ?? '';
-  const validationItems = (validations ?? [])
-    .map((rule) => formatValidationLabel(rule))
-    .filter((value) => value.length > 0)
-    .map((value) => ({ text: `validation: ${value}`, color: '#0f172a' }));
-  const items = [
-    controlLabel.length > 0 ? { text: controlLabel, color: controlStyle.color } : null,
-    normalizedCondition.length > 0 ? { text: normalizedCondition, color: '#111827' } : null,
-    normalizedNote.length > 0 ? { text: normalizedNote, color: '#6b7280' } : null,
-    ...validationItems,
-  ].filter(Boolean) as { text: string; color: string }[];
-
-  if (items.length === 0) return undefined;
-
-  return (
-    <div className="flex flex-col items-center gap-1 text-[11px]">
-      {items.map((item, index) => (
-        <div
-          key={`${item.text}-${index}`}
-          className="rounded-md border border-gray-200 bg-white/90 px-2 py-0.5 shadow-sm whitespace-pre-wrap"
-          style={{ color: item.color }}
-        >
-          {item.text}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ensureEdgeData(edge: Edge<LogicEdgeData>): LogicEdgeData {
-  const data = edge.data ?? { controlType: DEFAULT_EDGE_CONTROL };
-  return {
-    controlType: data.controlType ?? DEFAULT_EDGE_CONTROL,
-    condition: data.condition,
-    note: data.note,
-    validations: data.validations,
-    parallelOffset: data.parallelOffset ?? 0,
-    onEdit: data.onEdit,
-  };
-}
-
-function normalizeParallelOffsets(edges: Edge<LogicEdgeData>[]) {
-  const pairs = new Map<
-    string,
-    { a: string; b: string; forward: boolean; reverse: boolean }
-  >();
-  edges.forEach((edge) => {
-    const source = edge.source;
-    const target = edge.target;
-    if (!source || !target) return;
-    const sourceKey = `${source}::${edge.sourceHandle ?? ''}`;
-    const targetKey = `${target}::${edge.targetHandle ?? ''}`;
-    const [a, b] = sourceKey < targetKey ? [sourceKey, targetKey] : [targetKey, sourceKey];
-    const key = `${a}||${b}`;
-    const entry = pairs.get(key) ?? { a, b, forward: false, reverse: false };
-    if (sourceKey === a && targetKey === b) {
-      entry.forward = true;
-    } else {
-      entry.reverse = true;
-    }
-    pairs.set(key, entry);
-  });
-  let changed = false;
-  const normalized = edges.map((edge) => {
-    const source = edge.source;
-    const target = edge.target;
-    if (!source || !target) return edge;
-    const sourceKey = `${source}::${edge.sourceHandle ?? ''}`;
-    const targetKey = `${target}::${edge.targetHandle ?? ''}`;
-    const [a, b] = sourceKey < targetKey ? [sourceKey, targetKey] : [targetKey, sourceKey];
-    const entry = pairs.get(`${a}||${b}`);
-    const hasBoth = Boolean(entry?.forward && entry?.reverse);
-    const desiredOffset =
-      hasBoth && entry ? (sourceKey === entry.a && targetKey === entry.b ? 1 : -1) : 0;
-    const data = edge.data;
-    const currentOffset = data?.parallelOffset ?? 0;
-    const hasControlType = Boolean(data?.controlType);
-    const resolvedData = ensureEdgeData(edge);
-    const controlStyle = CONTROL_STYLE[resolvedData.controlType] || CONTROL_STYLE.flow;
-    const desiredColor = controlStyle.color;
-    const desiredDash = controlStyle.edgeDash;
-    const needsStroke = edge.style?.stroke == null;
-    const needsWidth = edge.style?.strokeWidth == null;
-    const needsDash = edge.style?.strokeDasharray == null && desiredDash !== undefined;
-    const nextStyle =
-      needsStroke || needsWidth || needsDash
-        ? {
-            ...edge.style,
-            stroke: (edge.style?.stroke as string | undefined) ?? desiredColor,
-            strokeWidth:
-              (edge.style?.strokeWidth as number | undefined) ?? EDGE_STROKE_WIDTH,
-            strokeDasharray: edge.style?.strokeDasharray ?? desiredDash,
-            zIndex: (edge.style?.zIndex as number | undefined) ?? 1000,
-          }
-        : edge.style;
-    const nextMarkerEnd =
-      edge.markerEnd ??
-      ({
-        type: MarkerType.ArrowClosed,
-        color: (nextStyle?.stroke as string | undefined) ?? desiredColor,
-      } as const);
-    const needsStyle = nextStyle !== edge.style;
-    const needsMarker = edge.markerEnd == null;
-    const needsType = edge.type !== 'logicEdge';
-    const needsData = currentOffset !== desiredOffset || !hasControlType;
-    if (!needsData && !needsStyle && !needsMarker && !needsType) {
-      return edge;
-    }
-    changed = true;
-    return {
-      ...edge,
-      type: 'logicEdge',
-      data: { ...resolvedData, parallelOffset: desiredOffset },
-      style: nextStyle,
-      markerEnd: nextMarkerEnd,
-    };
-  });
-  return changed ? normalized : edges;
-}
 
 function LogicEdge({
   id,
