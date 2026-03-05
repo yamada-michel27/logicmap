@@ -53,17 +53,8 @@ import type {
   VariableOperationType,
   VariableScope,
   VariableNodeData,
-  TypeNodeData,
   FlowNodeData,
   LogicEdgeData,
-  StoredNode,
-  StoredEdge,
-  FlowSnapshot,
-  SavedFlowSummary,
-  SavedFlowDetail,
-  NodeRect,
-  StyleKey,
-  InnerElement,
   NodeFormState,
   EdgeFormState,
   NodeOption,
@@ -93,13 +84,11 @@ import {
   INSTANCE_OFFSET_X,
   INSTANCE_OFFSET_Y,
   DEFAULT_EDGE_CONTROL,
-  FLOW_STORAGE_VERSION,
   EMPTY_NODE_FORM,
   EMPTY_EDGE_FORM,
   NODE_OPTIONS,
   CATCH_OPTIONS,
 } from './flow/constants';
-import { apiFetch } from './flow/api';
 import {
   toRgba,
   getNodeRect,
@@ -112,8 +101,6 @@ import {
   getNodeOptionForNode,
   isEventFromNodeOrEdge,
   normalizeText,
-  cloneJson,
-  formatSaveLabel,
   formatTypedFields,
   formatValidationRules,
   parseCatchValue,
@@ -128,14 +115,8 @@ import {
   ensureEdgeData,
   normalizeParallelOffsets,
 } from './flow/utils';
-import {
-  serializeNode,
-  serializeEdge,
-  hydrateNode,
-  hydrateEdge,
-  getNextNodeSeqFromNodes,
-  getNextEdgeSeqFromEdges,
-} from './flow/serialization';
+import { useFlowPersistence } from './flow/hooks/useFlowPersistence';
+import { usePythonIntegration } from './flow/hooks/usePythonIntegration';
 import EdgeModal from './flow/modals/EdgeModal';
 import MemoModal from './flow/modals/MemoModal';
 import VariableModal from './flow/modals/VariableModal';
@@ -786,11 +767,6 @@ type FlowVisualizationProps = {
 export default function FlowVisualization({ initialFlowId }: FlowVisualizationProps) {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<LogicEdgeData>([]);
-  const [savedFlows, setSavedFlows] = useState<SavedFlowSummary[]>([]);
-  const [isLoadingFlows, setIsLoadingFlows] = useState(false);
-  const [isSavingFlow, setIsSavingFlow] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saveName, setSaveName] = useState('');
   const [pendingConnection, setPendingConnection] = useState<Connection | null>(null);
   const [pendingNodeClientPosition, setPendingNodeClientPosition] = useState<XYPosition | null>(
     null
@@ -910,20 +886,6 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
   }, [declaredVariables]);
 
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
-  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportedText, setExportedText] = useState('');
-  const [isCopied, setIsCopied] = useState(false);
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [importText, setImportText] = useState('');
-  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
-  const [isPythonModalOpen, setIsPythonModalOpen] = useState(false);
-  const [pythonCode, setPythonCode] = useState('');
-  const [isPythonGenerating, setIsPythonGenerating] = useState(false);
-  const [isPythonImportModalOpen, setIsPythonImportModalOpen] = useState(false);
-  const [pythonInputCode, setPythonInputCode] = useState('');
-  const [isCanvasGenerating, setIsCanvasGenerating] = useState(false);
-  const [currentFlowId, setCurrentFlowId] = useState<string | null>(null);
-  const [currentFlowName, setCurrentFlowName] = useState<string | null>(null);
   const [debugEvent, setDebugEvent] = useState<{
     type: string;
     x: number;
@@ -937,53 +899,12 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
   const debugEventCount = useRef(0);
   const lastPaneClickAt = useRef<number | null>(null);
 
-  const fetchSavedFlows = useCallback(async () => {
-    setIsLoadingFlows(true);
-    setSaveError(null);
-    try {
-      const list = await apiFetch<SavedFlowSummary[]>('/flows', { method: 'GET' });
-      setSavedFlows(list ?? []);
-    } catch {
-      setSaveError('保存データの取得に失敗しました。');
-    } finally {
-      setIsLoadingFlows(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void fetchSavedFlows();
-  }, [fetchSavedFlows]);
-
-
   useEffect(() => {
     const normalized = normalizeParallelOffsets(edges);
     if (normalized !== edges) {
       setEdges(normalized);
     }
   }, [edges, setEdges]);
-
-  const updateFlow = useCallback(async () => {
-    if (!currentFlowId) {
-      return;
-    }
-
-    const snapshot = {
-      nodes: nodes.map(serializeNode),
-      edges: edges.map(serializeEdge),
-      nextNodeSeq: nextNodeSeq.current,
-      nextEdgeSeq: nextEdgeSeq.current,
-    };
-
-    try {
-      await apiFetch<unknown>(`/flows/${currentFlowId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ snapshot }),
-      });
-      await fetchSavedFlows(); // 保存後にリストを更新
-    } catch (error) {
-      console.error('上書き保存に失敗しました:', error);
-    }
-  }, [currentFlowId, nodes, edges, fetchSavedFlows]);
 
 
   const createLogicNode = useCallback(
@@ -1943,1105 +1864,72 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     setPendingStamp(null);
   }, []);
 
-  const saveCurrentFlow = useCallback(async () => {
-    setIsSavingFlow(true);
-    setSaveError(null);
-    const now = new Date();
-    const name = saveName.trim() || formatSaveLabel(now);
-    const snapshot: FlowSnapshot = {
-      version: FLOW_STORAGE_VERSION,
-      nodes: nodes.map(serializeNode),
-      edges: edges.map(serializeEdge),
-      nextNodeSeq: nextNodeSeq.current,
-      nextEdgeSeq: nextEdgeSeq.current,
-    };
-    try {
-      const result = await apiFetch<{ id: string; name: string }>('/flows', {
-        method: 'POST',
-        body: JSON.stringify({ name, snapshot }),
-      });
-
-      if (result) {
-        setCurrentFlowId(result.id);
-        setCurrentFlowName(result.name);
-      }
-
-      await fetchSavedFlows();
-      setSaveName('');
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '';
-      if (message.includes('limit_reached')) {
-        setSaveError('保存件数が上限(30件)に達しました。削除してから保存してください。');
-      } else {
-        setSaveError('保存に失敗しました。');
-      }
-    } finally {
-      setIsSavingFlow(false);
-    }
-  }, [edges, fetchSavedFlows, nodes, saveName]);
-
-  const generateFlowData = useCallback(() => {
-    // 新しいJSON形式でのエクスポート
-    const exportData = {
-      version: "2.0.0",
-      format: "LogicMap Flow Structure",
-      exportedAt: new Date().toISOString(),
-      metadata: {
-        totalNodes: nodes.length,
-        totalEdges: edges.length,
-        flowName: currentFlowName || "Untitled Flow"
-      },
-      nodes: nodes.map(node => {
-        const nodeData = node.data as FlowNodeData;
-
-        // DOMから実際のサイズを取得
-        const element = document.querySelector(`[data-id="${node.id}"]`);
-        let actualWidth = node.width;
-        let actualHeight = node.height;
-
-        if (element && !actualWidth) {
-          const rect = element.getBoundingClientRect();
-          actualWidth = rect.width;
-          actualHeight = rect.height;
-        }
-
-        // 基本ノード情報
-        const baseNode = {
-          id: node.id,
-          type: node.type,
-          position: {
-            x: node.position.x,
-            y: node.position.y
-          },
-          size: {
-            width: actualWidth || (typeof node.style?.width === 'number' ? node.style.width : 160),
-            height: actualHeight || (typeof node.style?.height === 'number' ? node.style.height : 80)
-          },
-          parentNode: node.parentNode || null,
-          extent: node.extent || null,
-          expandParent: node.expandParent || null,
-          style: node.style || {},
-          className: node.className || null,
-          selected: node.selected || false,
-          dragging: node.dragging || false
-        };
-
-        // ノードタイプ別のデータ
-        if (node.type === 'logicNode') {
-          const data = nodeData as LogicNodeData;
-          return {
-            ...baseNode,
-            data: {
-              seq: data.seq,
-              nodeKind: data.nodeKind || 'normal',
-              label: data.label,
-              condition: data.condition,
-              note: data.note,
-              validations: (data as any).validations || []
-            }
-          };
-        } else if (node.type === 'sectionNode') {
-          const data = nodeData as SectionNodeData;
-          return {
-            ...baseNode,
-            data: {
-              label: data.label,
-              sectionType: data.sectionType,
-              note: data.note,
-              validations: data.validations || [],
-              // function関連
-              functionArgs: data.functionArgs || [],
-              functionReturnType: data.functionReturnType,
-              functionReturnValue: data.functionReturnValue,
-              // class関連
-              classConstructorArgs: data.classConstructorArgs || [],
-              classMembers: data.classMembers || [],
-              classMethods: data.classMethods || [],
-              // interface関連
-              interfaceMembers: data.interfaceMembers || [],
-              interfaceMethods: data.interfaceMethods || [],
-              // loop関連
-              loopCondition: data.loopCondition,
-              // catch関連
-              catchException: data.catchException
-            }
-          };
-        } else if (node.type === 'memoNode') {
-          const data = nodeData as MemoNodeData;
-          return {
-            ...baseNode,
-            data: {
-              text: data.text
-            }
-          };
-        } else if (node.type === 'typeNode') {
-          const data = nodeData as TypeNodeData;
-          return {
-            ...baseNode,
-            data: {
-              pythonType: data.pythonType,
-              seq: data.seq || nextNodeSeq,
-              variableName: data.variableName,
-              initialValue: data.initialValue,
-              elementType: data.elementType,
-              keyType: data.keyType,
-              valueType: data.valueType,
-              innerType: data.innerType,
-              unionTypes: data.unionTypes,
-              note: data.note,
-              genericParams: data.genericParams
-            }
-          };
-        } else if (node.type === 'stampNode') {
-          const data = nodeData as StampNodeData;
-          return {
-            ...baseNode,
-            data: {
-              stamp: data.stamp
-            }
-          };
-        } else {
-          return {
-            ...baseNode,
-            data: nodeData
-          };
-        }
-      }),
-      edges: edges.map(edge => {
-        const data = edge.data as LogicEdgeData;
-        return {
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          sourceHandle: edge.sourceHandle || null,
-          targetHandle: edge.targetHandle || null,
-          type: edge.type || null,
-          animated: edge.animated || false,
-          style: edge.style || {},
-          className: edge.className || null,
-          selected: edge.selected || false,
-          data: {
-            controlType: data.controlType,
-            condition: data.condition,
-            note: data.note,
-            validations: data.validations || []
-          }
-        };
-      })
-    };
-
-    return JSON.stringify(exportData, null, 2);
-  }, [nodes, edges, currentFlowName]);
-
-  const generateFlowTextLegacy = useCallback(() => {
-    const lines: string[] = [];
-
-    // ヘッダー
-    lines.push('# Flow Structure Export');
-    lines.push('');
-
-    // ノード一覧
-    lines.push('## Nodes');
-    nodes.forEach(node => {
-      const nodeData = node.data as FlowNodeData;
-
-      // 座標・サイズ情報を取得
-      const position = node.position;
-      const width = node.width || (typeof node.style?.width === 'number' ? node.style.width : 'auto');
-      const height = node.height || (typeof node.style?.height === 'number' ? node.style.height : 'auto');
-      const positionInfo = `位置: (${Math.round(position.x)}, ${Math.round(position.y)})`;
-      const sizeInfo = `サイズ: ${width} × ${height}`;
-
-      if (node.type === 'logicNode') {
-        const data = nodeData as LogicNodeData;
-        const nodeKind = data.nodeKind || 'normal';
-        const label = data.label || (nodeKind === 'start' ? 'Start' : nodeKind === 'end' ? 'End' : `Node-${data.seq}`);
-        lines.push(`- [${nodeKind}] ${label} (id: ${node.id})`);
-        lines.push(`  - ${positionInfo}, ${sizeInfo}`);
-        if (node.parentNode) lines.push(`  - 親: ${node.parentNode}`);
-        if (data.condition) lines.push(`  - 条件: ${data.condition}`);
-        if (data.note) lines.push(`  - 補足: ${data.note}`);
-      } else if (node.type === 'sectionNode') {
-        const data = nodeData as SectionNodeData;
-        const sectionType = data.sectionType || 'function';
-        const sectionStyle = CONTROL_STYLE[sectionType] || CONTROL_STYLE.flow;
-        const label = data.label || sectionStyle.label;
-        lines.push(`- [${sectionType}] ${label} (id: ${node.id})`);
-        lines.push(`  - ${positionInfo}, ${sizeInfo}`);
-        if (node.parentNode) lines.push(`  - 親: ${node.parentNode}`);
-
-        if (sectionType === 'function') {
-          if (data.functionArgs && data.functionArgs.length > 0) {
-            lines.push(`  - 引数: ${data.functionArgs.map(arg => `${arg.name}: ${arg.type}`).join(', ')}`);
-          }
-          if (data.functionReturnType) lines.push(`  - 返り値型: ${data.functionReturnType}`);
-          if (data.functionReturnValue) lines.push(`  - 返り値: ${data.functionReturnValue}`);
-        } else if (sectionType === 'class') {
-          if (data.classConstructorArgs && data.classConstructorArgs.length > 0) {
-            lines.push(`  - コンストラクタ: ${data.classConstructorArgs.map(arg => `${arg.name}: ${arg.type}`).join(', ')}`);
-          }
-          if (data.classMembers && data.classMembers.length > 0) {
-            lines.push(`  - メンバ: ${data.classMembers.map(member => `${member.name}: ${member.type}`).join(', ')}`);
-          }
-          if (data.classMethods && data.classMethods.length > 0) {
-            data.classMethods.forEach((method, i) => {
-              lines.push(`  - メソッド${i + 1}: ${method.name}(${method.args.map(arg => `${arg.name}: ${arg.type}`).join(', ')}) -> ${method.returns}`);
-              if (method.note) lines.push(`    - 補足: ${method.note}`);
-            });
-          }
-        } else if (sectionType === 'interface') {
-          if (data.interfaceMembers && data.interfaceMembers.length > 0) {
-            lines.push(`  - プロパティ: ${data.interfaceMembers.map(member => `${member.name}: ${member.type}`).join(', ')}`);
-          }
-          if (data.interfaceMethods && data.interfaceMethods.length > 0) {
-            data.interfaceMethods.forEach((method, i) => {
-              lines.push(`  - メソッド${i + 1}: ${method.name}(${method.args.map(arg => `${arg.name}: ${arg.type}`).join(', ')}) -> ${method.returns}`);
-            });
-          }
-        } else if (sectionType === 'while' || sectionType === 'for') {
-          if (data.loopCondition) lines.push(`  - 条件: ${data.loopCondition}`);
-        } else if (sectionType === 'catch') {
-          if (data.catchException) lines.push(`  - 例外: ${data.catchException}`);
-        }
-
-        if (data.note) lines.push(`  - 補足: ${data.note}`);
-        if (data.validations && data.validations.length > 0) {
-          lines.push(`  - バリデーション:`);
-          data.validations.forEach(validation => {
-            lines.push(`    - ${validation.target}: ${validation.rule} (${validation.message})`);
-          });
-        }
-      } else if (node.type === 'memoNode') {
-        const data = nodeData as MemoNodeData;
-        lines.push(`- [memo] ${data.text.replace(/\n/g, ' ')} (id: ${node.id})`);
-        lines.push(`  - ${positionInfo}, ${sizeInfo}`);
-      } else if (node.type === 'typeNode') {
-        const data = nodeData as TypeNodeData;
-        const typeInfo = PYTHON_TYPE_OPTIONS.find(t => t.id === data.pythonType);
-        lines.push(`- [type] ${data.pythonType}${data.genericParams ? `[${data.genericParams}]` : ''} (id: ${node.id})`);
-        lines.push(`  - ${positionInfo}, ${sizeInfo}`);
-        if (typeInfo) lines.push(`  - 説明: ${typeInfo.description}`);
-        if (data.note) lines.push(`  - 補足: ${data.note}`);
-      } else if (node.type === 'stampNode') {
-        const data = nodeData as StampNodeData;
-        const stamp = STAMP_OPTIONS.find(s => s.id === data.stamp);
-        lines.push(`- [stamp] ${stamp?.emoji} ${stamp?.label} (id: ${node.id})`);
-        lines.push(`  - ${positionInfo}, ${sizeInfo}`);
-      }
-    });
-
-    lines.push('');
-
-    // エッジ一覧
-    lines.push('## Edges');
-    edges.forEach(edge => {
-      const data = edge.data as LogicEdgeData;
-      const sourceNode = nodes.find(n => n.id === edge.source);
-      const targetNode = nodes.find(n => n.id === edge.target);
-      const sourceName = sourceNode ? getNodeDisplayLabel(sourceNode) : edge.source;
-      const targetName = targetNode ? getNodeDisplayLabel(targetNode) : edge.target;
-
-      const controlLabel = data.controlType === 'flow' ? '通常' : CONTROL_STYLE[data.controlType]?.label || data.controlType;
-      lines.push(`- [${controlLabel}] ${sourceName} → ${targetName}`);
-
-      if (data.condition) lines.push(`  - 条件: ${data.condition}`);
-      if (data.note) lines.push(`  - 補足: ${data.note}`);
-      if (data.validations && data.validations.length > 0) {
-        lines.push(`  - バリデーション:`);
-        data.validations.forEach(validation => {
-          lines.push(`    - ${validation.target}: ${validation.rule} (${validation.message})`);
-        });
-      }
-    });
-
-    lines.push('');
-    lines.push('---');
-    lines.push('Generated by LogicMap Flow Visualization Tool');
-
-    return lines.join('\n');
-  }, [nodes, edges]);
-
-  const openExportModal = useCallback(() => {
-    const text = generateFlowData();
-    setExportedText(text);
-    setIsExportModalOpen(true);
-  }, [generateFlowData]);
-
-  const closeExportModal = useCallback(() => {
-    setIsExportModalOpen(false);
-    setExportedText('');
-    setIsCopied(false);
-  }, []);
-
-  const openImportModal = useCallback(() => {
-    setIsImportModalOpen(true);
-  }, []);
-
-  const closeImportModal = useCallback(() => {
-    setIsImportModalOpen(false);
-    setImportText('');
-  }, []);
-
-  // Pythonコード生成関数
-  const generatePythonCode = useCallback(async () => {
-    setIsPythonGenerating(true);
-    setPythonCode('');
-    setIsPythonModalOpen(true);
-
-    try {
-      // FlowSnapshotを作成
-      const snapshot: FlowSnapshot = {
-        version: 1,
-        nodes: nodes.map(node => ({
-          id: node.id,
-          type: node.type,
-          position: node.position,
-          data: node.data,
-          width: node.width,
-          height: node.height
-        })),
-        edges: edges.map(edge => ({
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          data: edge.data
-        })),
-        nextNodeSeq: nextNodeSeq.current,
-        nextEdgeSeq: nextEdgeSeq.current
-      };
-
-      // Python サービスにリクエスト
-      const pythonServiceUrl = process.env.NEXT_PUBLIC_PYTHON_SERVICE_URL || 'http://localhost:8001';
-      const response = await fetch(`${pythonServiceUrl}/api/v1/canvas-to-python`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          snapshot: snapshot,
-          options: {
-            include_comments: true,
-            include_docstrings: true
-          }
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        setPythonCode(data.code);
-      } else {
-        setPythonCode(`// エラーが発生しました\n${data.error || '不明なエラー'}`);
-      }
-    } catch (error) {
-      console.error('Python code generation failed:', error);
-      setPythonCode(`// エラーが発生しました\n${error instanceof Error ? error.message : '不明なエラー'}`);
-    } finally {
-      setIsPythonGenerating(false);
-    }
-  }, [nodes, edges]);
-
-  const closePythonModal = useCallback(() => {
-    setIsPythonModalOpen(false);
-    setPythonCode('');
-    setIsPythonGenerating(false);
-  }, []);
-
-  // PythonコードからCanvas生成
-  const generateCanvasFromPython = useCallback(async () => {
-    setIsCanvasGenerating(true);
-
-    try {
-      // Python サービスにリクエスト
-      const pythonServiceUrl = process.env.NEXT_PUBLIC_PYTHON_SERVICE_URL || 'http://localhost:8001';
-      const response = await fetch(`${pythonServiceUrl}/api/v1/python-to-canvas`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          code: pythonInputCode,
-          options: {
-            include_comments: true,
-            include_docstrings: true
-          }
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.success) {
-        const snapshot = data.snapshot;
-
-        // 現在のキャンバスをクリア
-        setNodes([]);
-        setEdges([]);
-
-        // 新しいノードとエッジをセット
-        const newNodes = snapshot.nodes.map((node: any) => {
-          console.log(`[FRONTEND_SIZE] Processing node ${node.id}: type=${node.type}, width=${node.width}, height=${node.height}`);
-
-          return {
-            ...node,
-            position: node.position,
-            // Pythonで計算された動的サイズを強制的に適用
-            style: {
-              width: node.width || (node.type === 'sectionNode' ? SECTION_DEFAULT_WIDTH : 160),
-              height: node.height || (node.type === 'sectionNode' ? SECTION_DEFAULT_HEIGHT : 80),
-              ...node.style
-            }
-          };
-        });
-
-        const newEdges = snapshot.edges.map((edge: any) => ({
-          ...edge,
-          type: 'logicEdge',
-          animated: false,
-        }));
-
-        setNodes(newNodes);
-        setEdges(newEdges);
-
-        // シーケンス番号を更新
-        nextNodeSeq.current = snapshot.nextNodeSeq;
-        nextEdgeSeq.current = snapshot.nextEdgeSeq;
-
-        // モーダルを閉じる
-        setIsPythonImportModalOpen(false);
-        setPythonInputCode('');
-      } else {
-        alert(`Canvas生成に失敗しました: ${data.error || '不明なエラー'}`);
-      }
-    } catch (error) {
-      console.error('Canvas generation failed:', error);
-      alert(`Canvas生成に失敗しました: ${error instanceof Error ? error.message : '不明なエラー'}`);
-    } finally {
-      setIsCanvasGenerating(false);
-    }
-  }, [pythonInputCode]);
-
-  const closePythonImportModal = useCallback(() => {
-    setIsPythonImportModalOpen(false);
-    setPythonInputCode('');
-    setIsCanvasGenerating(false);
-  }, []);
-
-  // Mermaidもどきテキストからノードとエッジを解析する関数
-  const parseImportData = useCallback((text: string) => {
-    try {
-      // JSONフォーマットかどうか確認
-      const data = JSON.parse(text);
-
-      // バージョンチェック
-      if (!data.version || !data.format || data.format !== "LogicMap Flow Structure") {
-        throw new Error("このファイルは対応していない形式です。LogicMap形式のファイルを選択してください。");
-      }
-
-      // バージョン互換性チェック
-      const supportedVersions = ["2.0.0"];
-      if (!supportedVersions.includes(data.version)) {
-        throw new Error(`サポートされていないバージョンです: ${data.version}。サポート版: ${supportedVersions.join(', ')}`);
-      }
-
-      // 座標データの完全性チェック
-      const invalidNodes = data.nodes.filter((node: any) =>
-        !node.position ||
-        typeof node.position.x !== 'number' ||
-        typeof node.position.y !== 'number' ||
-        !node.size ||
-        typeof node.size.width !== 'number' ||
-        typeof node.size.height !== 'number'
-      );
-
-      if (invalidNodes.length > 0) {
-        throw new Error(`座標またはサイズ情報が不完全なノードがあります（${invalidNodes.length}個）。自動配置は廃止されました。すべてのノードに正確な座標とサイズが必要です。`);
-      }
-
-      // ID重複チェック（既存ノードとの照合）
-      const existingNodeIds = nodes.map(n => n.id);
-      const existingEdgeIds = edges.map(e => e.id);
-      const importNodeIds = data.nodes.map((n: any) => n.id);
-      const importEdgeIds = data.edges.map((e: any) => e.id);
-
-      const duplicateNodeIds = importNodeIds.filter((id: string) => existingNodeIds.includes(id));
-      const duplicateEdgeIds = importEdgeIds.filter((id: string) => existingEdgeIds.includes(id));
-
-      // ID重複対応: サフィックスを追加
-      const generateUniqueId = (baseId: string, existingIds: string[]): string => {
-        let newId = baseId;
-        let counter = 1;
-        while (existingIds.includes(newId)) {
-          newId = `${baseId}_import_${counter}`;
-          counter++;
-        }
-        return newId;
-      };
-
-      const idMapping: Record<string, string> = {};
-
-      // ノードのID重複解決
-      data.nodes.forEach((node: any) => {
-        if (duplicateNodeIds.includes(node.id)) {
-          const newId = generateUniqueId(node.id, [...existingNodeIds, ...Object.values(idMapping)]);
-          idMapping[node.id] = newId;
-          node.id = newId;
-        }
-      });
-
-      // エッジのID重複解決とノード参照更新
-      data.edges.forEach((edge: any) => {
-        if (duplicateEdgeIds.includes(edge.id)) {
-          const newId = generateUniqueId(edge.id, [...existingEdgeIds, ...Object.values(idMapping)]);
-          edge.id = newId;
-        }
-
-        // ソース・ターゲットのノードIDが変更されている場合は更新
-        if (idMapping[edge.source]) {
-          edge.source = idMapping[edge.source];
-        }
-        if (idMapping[edge.target]) {
-          edge.target = idMapping[edge.target];
-        }
-      });
-
-      // 親子関係のID更新
-      data.nodes.forEach((node: any) => {
-        if (node.parentNode && idMapping[node.parentNode]) {
-          node.parentNode = idMapping[node.parentNode];
-        }
-      });
-
-      return {
-        nodes: data.nodes,
-        edges: data.edges,
-        metadata: data.metadata
-      };
-
-    } catch (error) {
-      if (error instanceof SyntaxError) {
-        throw new Error("JSONフォーマットが正しくありません。新しいLogicMap形式のファイルを使用してください。");
-      }
-      throw error;
-    }
-  }, [nodes, edges]);
-
-  const parseImportTextLegacy = useCallback((text: string) => {
-    const lines = text.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-    const newNodes: Node[] = [];
-    const newEdges: Edge[] = [];
-    let nodeCounter = 1;
-    let edgeCounter = 1;
-    let currentSection = '';
-
-    // 自動配置用の設定
-    const GRID_SPACING_X = 200;
-    const GRID_SPACING_Y = 150;
-    const NODES_PER_ROW = 4;
-    let autoPositionIndex = 0;
-
-    let i = 0;
-    while (i < lines.length) {
-      const line = lines[i];
-
-      // セクションヘッダーをチェック
-      if (line.toLowerCase().startsWith('## nodes')) {
-        currentSection = 'nodes';
-        i++;
-        continue;
-      } else if (line.toLowerCase().startsWith('## edges')) {
-        currentSection = 'edges';
-        i++;
-        continue;
-      } else if (line.startsWith('#') || line.startsWith('---') || line.startsWith('Generated by')) {
-        // その他のヘッダーやフッターをスキップ
-        i++;
-        continue;
-      }
-
-      if (currentSection === 'nodes' && line.startsWith('- [')) {
-        // ノード定義の解析
-        console.log(`[DEBUG] Processing node line: "${line}"`);
-        const nodeHeaderMatch = line.match(/^-\s*\[([^\]]+)\]\s+(.+?)\s*\(id:\s*([^)]+)\)/);
-        console.log(`[DEBUG] Node header match: ${!!nodeHeaderMatch}`);
-        if (nodeHeaderMatch) {
-          const [, nodeType, labelText, originalId] = nodeHeaderMatch;
-          const label = labelText.trim();
-          console.log(`[DEBUG] Node: type=${nodeType}, label=${label}, id=${originalId}`);
-
-          // 次の行から追加情報を読み取る
-          let position = { x: 0, y: 0 };
-          let style = { width: 160, height: 80 };
-          let additionalData: any = {};
-          let hasPosition = false;
-          let parentNodeId: string | undefined = undefined;
-
-          i++;
-          while (i < lines.length && lines[i].startsWith('  - ')) {
-            const subLine = lines[i].trim();
-
-            // 位置情報の解析
-            const positionMatch = subLine.match(/位置:\s*\((\d+),\s*(\d+)\),\s*サイズ:\s*(\d+)\s*×\s*(\d+)/);
-            console.log(`[DEBUG] Position parsing for ${originalId}: line="${subLine}", match=${!!positionMatch}`);
-            if (positionMatch) {
-              const [, x, y, width, height] = positionMatch;
-              position = { x: parseInt(x), y: parseInt(y) };
-              style = { width: parseInt(width), height: parseInt(height) };
-              hasPosition = true;
-              console.log(`[DEBUG] Parsed position for ${originalId}: (${x}, ${y}), size: ${width}x${height}`);
-            }
-
-            // 親子関係の解析
-            const parentMatch = subLine.match(/親:\s*(.+)$/);
-            if (parentMatch) {
-              parentNodeId = parentMatch[1];
-            }
-
-            // 条件の解析
-            const conditionMatch = subLine.match(/条件:\s*(.+)$/);
-            if (conditionMatch) {
-              additionalData.condition = conditionMatch[1];
-            }
-
-            // 引数の解析
-            const argsMatch = subLine.match(/引数:\s*(.+)$/);
-            if (argsMatch) {
-              additionalData.args = argsMatch[1];
-            }
-
-            // 返り値の解析
-            const returnMatch = subLine.match(/返り値:\s*(.+)$/);
-            if (returnMatch) {
-              additionalData.returnValue = returnMatch[1];
-            }
-
-            // 補足の解析
-            const noteMatch = subLine.match(/補足:\s*(.+)$/);
-            if (noteMatch) {
-              additionalData.note = noteMatch[1];
-            }
-
-            i++;
-          }
-          i--; // 次のループでインクリメントされるので調整
-
-          // 位置情報がない場合のみ自動配置
-          if (!hasPosition) {
-            // ノードタイプに応じた配置戦略
-            if (nodeType === 'start') {
-              // 開始ノードは左上に配置
-              position = { x: 50, y: 50 };
-            } else if (nodeType === 'end') {
-              // 終了ノードは右下に配置（仮の位置、後で調整）
-              position = { x: 600, y: 400 };
-            } else if (nodeType === 'function' || nodeType === 'main' || nodeType === 'class' || nodeType === 'interface') {
-              // セクションノードは上部に配置
-              const sectionRow = Math.floor(autoPositionIndex / NODES_PER_ROW);
-              const sectionCol = autoPositionIndex % NODES_PER_ROW;
-              position = {
-                x: sectionCol * (GRID_SPACING_X + 50) + 100, // セクションは横に広めに配置
-                y: 50 + sectionRow * 200 // セクションの高さも考慮して縦間隔を広く
-              };
-            } else {
-              // その他のノードはグリッド配置
-              const row = Math.floor(autoPositionIndex / NODES_PER_ROW);
-              const col = autoPositionIndex % NODES_PER_ROW;
-              position = {
-                x: col * GRID_SPACING_X + 50,
-                y: row * GRID_SPACING_Y + 200 // 関数ノードの下に配置
-              };
-            }
-            autoPositionIndex++;
-          }
-
-          // ノードタイプのマッピング
-          const mappedNodeType = (() => {
-            switch (nodeType) {
-              case 'start': case 'end': case 'normal': case 'if': case 'elif':
-                return 'logicNode';
-              case 'function': case 'main': case 'class': case 'interface': case 'try': case 'catch': case 'for': case 'while':
-                return 'sectionNode';
-              default:
-                return 'logicNode';
-            }
-          })();
-
-          let nodeData: any;
-
-          if (mappedNodeType === 'sectionNode') {
-            // sectionNodeの場合
-            nodeData = {
-              id: originalId,
-              type: mappedNodeType,
-              position,
-              data: {
-                label,
-                sectionType: nodeType as SectionType,
-                ...additionalData
-              },
-              style: {
-                ...style,
-                width: Math.max(style.width || 160, 200), // sectionは少し大きめに
-                height: Math.max(style.height || 80, 100)
-              }
-            };
-          } else {
-            // logicNodeの場合
-            nodeData = {
-              id: originalId,
-              type: mappedNodeType,
-              position,
-              data: {
-                label,
-                nodeKind: nodeType as NodeKind || 'normal',
-                seq: nodeCounter++,
-                ...additionalData
-              },
-              style
-            };
-
-            // 親子関係を明示的に設定
-            if (parentNodeId) {
-              nodeData.parentNode = parentNodeId;
-              nodeData.extent = 'parent' as const;
-            }
-          }
-
-          newNodes.push(nodeData as Node);
-        }
-      } else if (currentSection === 'edges' && line.startsWith('- [')) {
-        // エッジ定義の解析
-        const edgeMatch = line.match(/^-\s*\[([^\]]+)\]\s+(.+?)\s*→\s*(.+)$/);
-        if (edgeMatch) {
-          const [, edgeType, sourceName, targetName] = edgeMatch;
-
-          // ソースとターゲットのノードを探す
-          const sourceNode = newNodes.find(n => {
-            const labelMatch = n.data?.label === sourceName.trim();
-            const partialMatch = n.data?.label?.includes(sourceName.trim());
-            return labelMatch || partialMatch;
-          });
-
-          const targetNode = newNodes.find(n => {
-            const labelMatch = n.data?.label === targetName.trim();
-            const partialMatch = n.data?.label?.includes(targetName.trim());
-            return labelMatch || partialMatch;
-          });
-
-
-          if (sourceNode && targetNode) {
-            let edgeData: any = {
-              id: `edge-${edgeCounter++}`,
-              source: sourceNode.id,
-              target: targetNode.id,
-              type: 'logicEdge',
-              data: {
-                controlType: 'sequence' as const,
-                condition: '',
-                note: '',
-                validations: [],
-                parallelOffset: 0
-              }
-            };
-
-            // エッジタイプに基づく制御タイプの設定
-            if (edgeType.includes('if')) {
-              edgeData.data.controlType = 'if';
-            } else if (edgeType.includes('elif')) {
-              edgeData.data.controlType = 'elif';
-            }
-
-            // 条件や補足の解析（次の行から）
-            let j = i + 1;
-            while (j < lines.length && lines[j].startsWith('  - ')) {
-              const subLine = lines[j].trim();
-              const conditionMatch = subLine.match(/-\s*条件:\s*(.+)$/);
-              if (conditionMatch) {
-                edgeData.data.condition = conditionMatch[1];
-              }
-              const noteMatch = subLine.match(/-\s*補足:\s*(.+)$/);
-              if (noteMatch) {
-                edgeData.data.note = noteMatch[1];
-              }
-              j++;
-            }
-
-            newEdges.push(edgeData as Edge);
-          }
-        }
-      }
-
-      i++;
-    }
-
-    // 親子関係の処理（座標は最後に一括変換）
-    let processedNodes = [...newNodes];
-
-    // 1. まずセクション同士の親子関係を処理（絶対座標のまま）
-    processedNodes = processedNodes.map(node => {
-      // 明示的な親子関係が既に設定されている場合はスキップ
-      if (node.parentNode) return node;
-
-      if (node.type === 'sectionNode') {
-        // 元の絶対座標を保持した他のセクションと比較
-        const otherSections = newNodes.filter(n => n.type === 'sectionNode' && n.id !== node.id);
-        console.log(`[DEBUG] Processing section ${node.id}, found ${otherSections.length} other sections`);
-
-        // 他のセクションを面積の大きい順にソート（大きなセクションから親を探す）
-        const sortedOtherSections = otherSections.sort((a, b) => {
-          const aSize = (Number(a.style?.width) || 200) * (Number(a.style?.height) || 100);
-          const bSize = (Number(b.style?.width) || 200) * (Number(b.style?.height) || 100);
-          return bSize - aSize; // 大きいものから
-        });
-
-        // このセクションを含む最小のセクションを親とする（元の絶対座標で比較）
-        const parentSection = sortedOtherSections.find(otherSection => {
-          const otherPos = otherSection.position;
-          const otherSize = {
-            width: Number(otherSection.style?.width) || 200,
-            height: Number(otherSection.style?.height) || 100
-          };
-          const nodePos = newNodes.find(n => n.id === node.id)?.position;
-          const nodeSize = {
-            width: Number(node.style?.width) || 200,
-            height: Number(node.style?.height) || 100
-          };
-
-          if (!nodePos) return false;
-
-          // このノード全体が他のセクション内に含まれているかチェック
-          const isContained = nodePos.x >= otherPos.x &&
-                 nodePos.y >= otherPos.y &&
-                 nodePos.x + nodeSize.width <= otherPos.x + otherSize.width &&
-                 nodePos.y + nodeSize.height <= otherPos.y + otherSize.height;
-
-          console.log(`[DEBUG] Checking if ${node.id} is contained in ${otherSection.id}:`);
-          console.log(`  - nodePos: (${nodePos.x}, ${nodePos.y}), nodeSize: ${nodeSize.width}x${nodeSize.height}`);
-          console.log(`  - otherPos: (${otherPos.x}, ${otherPos.y}), otherSize: ${otherSize.width}x${otherSize.height}`);
-          console.log(`  - nodeRange: x:${nodePos.x}-${nodePos.x + nodeSize.width}, y:${nodePos.y}-${nodePos.y + nodeSize.height}`);
-          console.log(`  - otherRange: x:${otherPos.x}-${otherPos.x + otherSize.width}, y:${otherPos.y}-${otherPos.y + otherSize.height}`);
-          console.log(`  - checks: left=${nodePos.x >= otherPos.x}, top=${nodePos.y >= otherPos.y}, right=${nodePos.x + nodeSize.width <= otherPos.x + otherSize.width}, bottom=${nodePos.y + nodeSize.height <= otherPos.y + otherSize.height}`);
-          console.log(`  - isContained: ${isContained}`);
-
-          return isContained;
-        });
-
-        if (parentSection) {
-          console.log(`[DEBUG] Setting parent for section ${node.id}: parent=${parentSection.id}`);
-          return {
-            ...node,
-            parentNode: parentSection.id,
-            extent: 'parent' as const
-          };
-        }
-      }
-
-      return node;
-    });
-
-    // 2. 次にlogicNodeの親子関係を処理（絶対座標のまま）
-    processedNodes = processedNodes.map(node => {
-      // 明示的な親子関係が既に設定されている場合
-      if (node.parentNode) {
-        return node;
-      }
-
-      // logicNodeで明示的な親子関係がない場合の階層的推測
-      if (node.type === 'logicNode' && !node.parentNode) {
-        // 元の絶対座標を保持した状態でセクションと比較
-        const sectionNodes = newNodes.filter(n => n.type === 'sectionNode');
-
-        // セクションを面積の小さい順にソート（最も具体的な親を見つけるため）
-        const sortedSections = sectionNodes.sort((a, b) => {
-          const aSize = (Number(a.style?.width) || 200) * (Number(a.style?.height) || 100);
-          const bSize = (Number(b.style?.width) || 200) * (Number(b.style?.height) || 100);
-          return aSize - bSize;
-        });
-
-        // 最も小さい（＝最も具体的な）セクションから検索
-        const parentSection = sortedSections.find(sectionNode => {
-          const sectionPos = sectionNode.position;
-          const sectionSize = {
-            width: Number(sectionNode.style?.width) || 200,
-            height: Number(sectionNode.style?.height) || 100
-          };
-          const nodePos = node.position;
-
-          return nodePos.x >= sectionPos.x &&
-                 nodePos.x <= sectionPos.x + sectionSize.width &&
-                 nodePos.y >= sectionPos.y + 50 &&
-                 nodePos.y <= sectionPos.y + sectionSize.height;
-        });
-
-        if (parentSection) {
-          return {
-            ...node,
-            parentNode: parentSection.id,
-            extent: 'parent' as const
-          };
-        }
-      }
-
-      return node;
-    });
-
-    // 3. 最後に親子関係が設定されたノードの座標を相対座標に変換
-    processedNodes = processedNodes.map(node => {
-      if (node.parentNode) {
-        const parentNode = newNodes.find(n => n.id === node.parentNode);
-        if (parentNode) {
-          return {
-            ...node,
-            position: {
-              x: node.position.x - parentNode.position.x,
-              y: node.position.y - parentNode.position.y
-            }
-          };
-        }
-      }
-      return node;
-    });
-
-    return { nodes: processedNodes, edges: newEdges };
-  }, []);
-
-  const importFlowFromText = useCallback(() => {
-    try {
-      const { nodes, edges, metadata } = parseImportData(importText);
-
-      if (nodes.length === 0) {
-        alert('有効なノード定義が見つかりませんでした。');
-        return;
-      }
-
-      setNodes(nodes);
-      setEdges(edges);
-
-      // シーケンス番号を更新
-      const maxNodeSeq = nodes.length > 0 ? nodes.length + 1 : 1;
-      const maxEdgeSeq = edges.length > 0 ? edges.length + 1 : 1;
-      nextNodeSeq.current = maxNodeSeq;
-      nextEdgeSeq.current = maxEdgeSeq;
-
-      closeImportModal();
-
-      // インポート成功メッセージ（メタデータ情報も含む）
-      const message = metadata?.flowName
-        ? `「${metadata.flowName}」をインポートしました。\n${nodes.length}個のノードと${edges.length}個のエッジを復元しました。`
-        : `${nodes.length}個のノードと${edges.length}個のエッジをインポートしました。`;
-      alert(message);
-    } catch (error) {
-      console.error('インポート中にエラーが発生しました:', error);
-      const errorMessage = error instanceof Error ? error.message : 'インポート中にエラーが発生しました。';
-      alert(errorMessage);
-    }
-  }, [importText, parseImportData, setNodes, setEdges, closeImportModal]);
-
-  const openClearModal = useCallback(() => {
-    setIsClearModalOpen(true);
-  }, []);
-
-  const closeClearModal = useCallback(() => {
-    setIsClearModalOpen(false);
-  }, []);
-
-  const clearCanvas = useCallback(() => {
-    setNodes([]);
-    setEdges([]);
-    nextNodeSeq.current = 1;
-    nextEdgeSeq.current = 1;
-    setIsClearModalOpen(false);
-  }, [setNodes, setEdges]);
-
-  const createNewCanvas = useCallback(() => {
-    setNodes([]);
-    setEdges([]);
-    nextNodeSeq.current = 1;
-    nextEdgeSeq.current = 1;
-    setCurrentFlowId(null);
-    setCurrentFlowName(null);
-  }, [setNodes, setEdges]);
-
-  const copyToClipboard = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(exportedText);
-      setIsCopied(true);
-      // 1.5秒後にモーダルを閉じる
-      setTimeout(() => {
-        setIsExportModalOpen(false);
-        setExportedText('');
-        setIsCopied(false);
-      }, 1500);
-    } catch (err) {
-      console.error('コピーに失敗しました:', err);
-      alert('コピーに失敗しました');
-    }
-  }, [exportedText]);
-
-  const downloadFlowStructure = useCallback(() => {
-    try {
-      const blob = new Blob([exportedText], { type: 'application/json;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      const fileName = currentFlowName || 'flow-structure';
-      link.download = `${fileName}.logicmap.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('ダウンロードに失敗しました:', err);
-      alert('ダウンロードに失敗しました');
-    }
-  }, [exportedText, currentFlowName]);
-
-  const deleteSavedFlow = useCallback(
-    async (flowId: string) => {
-      setSaveError(null);
-      try {
-        await apiFetch<unknown>(`/flows/${flowId}`, { method: 'DELETE' });
-        await fetchSavedFlows();
-      } catch {
-        setSaveError('削除に失敗しました。');
-      }
-    },
-    [fetchSavedFlows]
-  );
-
-  const restoreSavedFlow = useCallback(
-    async (flowId: string) => {
-      setSaveError(null);
-      try {
-        const detail = await apiFetch<SavedFlowDetail>(`/flows/${flowId}`, { method: 'GET' });
-        if (!detail?.snapshot) {
-          setSaveError('保存データの復元に失敗しました。');
-          return;
-        }
-        resetTransientState();
-        const snapshot = detail.snapshot;
-        const restoredNodes = snapshot.nodes.map(hydrateNode);
-        const restoredEdges = normalizeParallelOffsets(snapshot.edges.map(hydrateEdge));
-        setNodes(restoredNodes);
-        setEdges(restoredEdges);
-        const nextNode = snapshot.nextNodeSeq || getNextNodeSeqFromNodes(snapshot.nodes);
-        const nextEdge = snapshot.nextEdgeSeq || getNextEdgeSeqFromEdges(snapshot.edges);
-        nextNodeSeq.current = nextNode;
-        nextEdgeSeq.current = nextEdge;
-        setCurrentFlowId(flowId);
-        setCurrentFlowName(detail.name);
-      } catch {
-        setSaveError('保存データの復元に失敗しました。');
-      }
-    },
-    [resetTransientState, setEdges, setNodes]
-  );
-
-  // 初期フローIDが指定されている場合の自動読み込み
-  useEffect(() => {
-    if (initialFlowId) {
-      restoreSavedFlow(initialFlowId);
-    }
-  }, [initialFlowId, restoreSavedFlow]);
+  const {
+    savedFlows,
+    isLoadingFlows,
+    isSavingFlow,
+    saveError,
+    saveName,
+    setSaveName,
+    currentFlowId,
+    currentFlowName,
+    isExportModalOpen,
+    exportedText,
+    isCopied,
+    isImportModalOpen,
+    importText,
+    setImportText,
+    isClearModalOpen,
+    saveCurrentFlow,
+    updateFlow,
+    openExportModal,
+    closeExportModal,
+    openImportModal,
+    closeImportModal,
+    importFlowFromText,
+    openClearModal,
+    closeClearModal,
+    clearCanvas,
+    createNewCanvas,
+    copyToClipboard,
+    downloadFlowStructure,
+    deleteSavedFlow,
+    restoreSavedFlow,
+  } = useFlowPersistence({
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+    nextNodeSeq,
+    nextEdgeSeq,
+    resetTransientState,
+    initialFlowId,
+  });
+
+  const {
+    isPythonModalOpen,
+    pythonCode,
+    isPythonGenerating,
+    isPythonImportModalOpen,
+    pythonInputCode,
+    setPythonInputCode,
+    isCanvasGenerating,
+    isPythonCopied,
+    generatePythonCode,
+    closePythonModal,
+    openPythonImportModal,
+    closePythonImportModal,
+    generateCanvasFromPython,
+    copyPythonCode,
+    downloadPythonFile,
+  } = usePythonIntegration({
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+    nextNodeSeq,
+    nextEdgeSeq,
+  });
 
   const recordDebugEvent = useCallback((type: string, event: ReactMouseEvent) => {
     debugEventCount.current += 1;
@@ -4221,27 +3109,6 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
   const pythonModalContent = useMemo(() => {
     if (!isPythonModalOpen) return null;
 
-    const copyPythonCode = () => {
-      navigator.clipboard.writeText(pythonCode).then(() => {
-        setIsCopied(true);
-        setTimeout(() => setIsCopied(false), 2000);
-      }).catch((err) => {
-        console.error('コピーに失敗しました:', err);
-      });
-    };
-
-    const downloadPythonFile = () => {
-      const blob = new Blob([pythonCode], { type: 'text/x-python' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'generated_code.py';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    };
-
     return (
       <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
         <div className="w-full max-w-4xl max-h-[80vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
@@ -4251,14 +3118,14 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
               <button
                 type="button"
                 className={`rounded-md border px-3 py-1 text-xs font-semibold ${
-                  isCopied
+                  isPythonCopied
                     ? 'border-green-200 bg-green-50 text-green-700'
                     : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
                 }`}
                 onClick={copyPythonCode}
                 disabled={isPythonGenerating}
               >
-                {isCopied ? '✓ コピー済み' : '📋 コピー'}
+                {isPythonCopied ? '✓ コピー済み' : '📋 コピー'}
               </button>
               <button
                 type="button"
@@ -4294,7 +3161,15 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
         </div>
       </div>
     );
-  }, [isPythonModalOpen, pythonCode, isPythonGenerating, isCopied, closePythonModal]);
+  }, [
+    closePythonModal,
+    copyPythonCode,
+    downloadPythonFile,
+    isPythonCopied,
+    isPythonGenerating,
+    isPythonModalOpen,
+    pythonCode,
+  ]);
 
   const pythonImportModalContent = useMemo(() => {
     if (!isPythonImportModalOpen) return null;
@@ -4347,7 +3222,14 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
         </div>
       </div>
     );
-  }, [isPythonImportModalOpen, pythonInputCode, isCanvasGenerating, closePythonImportModal, generateCanvasFromPython]);
+  }, [
+    closePythonImportModal,
+    generateCanvasFromPython,
+    isCanvasGenerating,
+    isPythonImportModalOpen,
+    pythonInputCode,
+    setPythonInputCode,
+  ]);
 
   const importModalContent = useMemo(() => {
     if (!isImportModalOpen) return null;
@@ -4408,7 +3290,7 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
         </div>
       </div>
     );
-  }, [isImportModalOpen, importText, closeImportModal, importFlowFromText]);
+  }, [closeImportModal, importFlowFromText, importText, isImportModalOpen, setImportText]);
 
   const clearModalContent = useMemo(() => {
     if (!isClearModalOpen) return null;
@@ -4565,7 +3447,7 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
           <button
             type="button"
             className="rounded-md border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-100"
-            onClick={() => setIsPythonImportModalOpen(true)}
+            onClick={openPythonImportModal}
           >
             📝 Python→Canvas
           </button>
