@@ -23,6 +23,8 @@ NodeKind = Literal['start', 'end', 'normal', 'break', 'continue', 'return']
 SectionType = Literal['function', 'class', 'interface', 'main', 'try', 'catch', 'while', 'for', 'if', 'elif', 'else']
 NodeControlType = Literal['flow', 'condition', 'loop', 'function', 'class']
 PythonType = Literal['int', 'float', 'bool', 'str', 'list', 'tuple', 'dict', 'set', 'None', 'Optional', 'Union', 'Any']
+VariableOperationType = Literal['declare', 'assign']  # 宣言モード、変更モード
+VariableScope = Literal['global', 'local']  # グローバル、ローカル
 
 class LogicNodeData(BaseModel):
     label: Optional[str] = None
@@ -63,21 +65,34 @@ class StampNodeData(BaseModel):
     stamp: StampType
     seq: int
 
-class TypeNodeData(BaseModel):
-    pythonType: PythonType
+class VariableNodeData(BaseModel):
+    # Phase8: 変数ノード統合
+    operationType: VariableOperationType  # 宣言 or 変更
     seq: int
-    variableName: Optional[str] = None  # 変数名
+
+    # 宣言モード用フィールド
+    pythonType: Optional[PythonType] = None  # 型（宣言モード時のみ必須）
+    variableName: Optional[str] = None  # 変数名（宣言モード時のみ必須）
     initialValue: Optional[str] = None  # 初期値
+    scope: VariableScope = 'global'  # 変数のスコープ
+
+    # 変更モード用フィールド
+    targetVariable: Optional[str] = None  # 変更対象の変数名（変更モード時のみ必須）
+    newValue: Optional[str] = None  # 新しい値（変更モード時のみ必須）
+
+    # 型固有のパラメータ（宣言モード時のみ使用）
     elementType: Optional[str] = None  # list, tuple, setの要素型
     keyType: Optional[str] = None  # dictのキー型
     valueType: Optional[str] = None  # dictの値型
     innerType: Optional[str] = None  # Optionalの内部型
     unionTypes: Optional[List[str]] = None  # Unionの型リスト
-    note: Optional[str] = None
     genericParams: Optional[str] = None  # その他の型パラメータ用
 
+    # 共通フィールド
+    note: Optional[str] = None
+
 # Union型でノードデータを表現
-FlowNodeData = Union[LogicNodeData, SectionNodeData, MemoNodeData, StampNodeData, TypeNodeData]
+FlowNodeData = Union[LogicNodeData, SectionNodeData, MemoNodeData, StampNodeData, VariableNodeData]
 
 class LogicEdgeData(BaseModel):
     controlType: NodeControlType

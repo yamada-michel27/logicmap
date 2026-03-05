@@ -13,15 +13,15 @@ class CanvasToPythonConverter:
         # ノードを種類別に分類
         section_nodes = []
         logic_nodes = []
-        type_nodes = []
+        variable_nodes = []  # Phase8: typeNode → variableNode
 
         for node in snapshot.nodes:
             if node.type == "sectionNode":
                 section_nodes.append(node)
             elif node.type == "logicNode":
                 logic_nodes.append(node)
-            elif node.type == "typeNode":
-                type_nodes.append(node)
+            elif node.type == "variableNode" or node.type == "typeNode":  # 後方互換性のためtypeNodeも対応
+                variable_nodes.append(node)
 
         # Phase7: 親子関係を考慮したネスト構造の構築
         root_sections = []  # ルート（親を持たない）セクション
@@ -44,46 +44,81 @@ class CanvasToPythonConverter:
             code_lines.append("# Generated from LogicMap Canvas")
             code_lines.append("")
 
-        # 型ノードをコメント/変数宣言として出力
-        if type_nodes and self.include_comments:
-            code_lines.append("# Types and variables used in this module:")
-            for node in type_nodes:
+        # Phase8: 変数ノードを処理（宣言・変更の2モードに対応）
+        if variable_nodes:
+            # 宣言モードと変更モードに分ける
+            declare_nodes = []
+            assign_nodes = []
+
+            for node in variable_nodes:
                 data = node.data
-                python_type = data.get('pythonType') if isinstance(data, dict) else getattr(data, 'pythonType', None)
-                variable_name = data.get('variableName') if isinstance(data, dict) else getattr(data, 'variableName', None)
-                initial_value = data.get('initialValue') if isinstance(data, dict) else getattr(data, 'initialValue', None)
-                element_type = data.get('elementType') if isinstance(data, dict) else getattr(data, 'elementType', None)
-                key_type = data.get('keyType') if isinstance(data, dict) else getattr(data, 'keyType', None)
-                value_type = data.get('valueType') if isinstance(data, dict) else getattr(data, 'valueType', None)
-                inner_type = data.get('innerType') if isinstance(data, dict) else getattr(data, 'innerType', None)
-                union_types = data.get('unionTypes') if isinstance(data, dict) else getattr(data, 'unionTypes', None)
-                note = data.get('note') if isinstance(data, dict) else getattr(data, 'note', None)
+                operation_type = data.get('operationType') if isinstance(data, dict) else getattr(data, 'operationType', 'declare')
 
-                # 型文字列を生成
-                type_str = python_type
-                if python_type in ['list', 'tuple', 'set'] and element_type:
-                    type_str = f"{python_type}[{element_type}]"
-                elif python_type == 'dict' and key_type and value_type:
-                    type_str = f"dict[{key_type}, {value_type}]"
-                elif python_type == 'Optional' and inner_type:
-                    type_str = f"Optional[{inner_type}]"
-                elif python_type == 'Union' and union_types:
-                    type_str = f"Union[{', '.join(union_types)}]"
+                if operation_type == 'declare' or operation_type is None:  # 後方互換性
+                    declare_nodes.append(node)
+                elif operation_type == 'assign':
+                    assign_nodes.append(node)
 
-                # 変数宣言を生成（実際のコードとしても使用可能）
-                if variable_name:
-                    if initial_value:
-                        code_lines.append(f"{variable_name}: {type_str} = {initial_value}")
+            # 変数宣言部分の処理
+            if declare_nodes and self.include_comments:
+                code_lines.append("# Variable declarations:")
+                for node in declare_nodes:
+                    data = node.data
+                    # Phase8: 新しい変数ノード構造に対応
+                    python_type = data.get('pythonType') if isinstance(data, dict) else getattr(data, 'pythonType', None)
+                    variable_name = data.get('variableName') if isinstance(data, dict) else getattr(data, 'variableName', None)
+                    initial_value = data.get('initialValue') if isinstance(data, dict) else getattr(data, 'initialValue', None)
+                    element_type = data.get('elementType') if isinstance(data, dict) else getattr(data, 'elementType', None)
+                    key_type = data.get('keyType') if isinstance(data, dict) else getattr(data, 'keyType', None)
+                    value_type = data.get('valueType') if isinstance(data, dict) else getattr(data, 'valueType', None)
+                    inner_type = data.get('innerType') if isinstance(data, dict) else getattr(data, 'innerType', None)
+                    union_types = data.get('unionTypes') if isinstance(data, dict) else getattr(data, 'unionTypes', None)
+                    scope = data.get('scope', 'global') if isinstance(data, dict) else getattr(data, 'scope', 'global')
+                    note = data.get('note') if isinstance(data, dict) else getattr(data, 'note', None)
+
+                    # 型文字列を生成
+                    type_str = python_type
+                    if python_type in ['list', 'tuple', 'set'] and element_type:
+                        type_str = f"{python_type}[{element_type}]"
+                    elif python_type == 'dict' and key_type and value_type:
+                        type_str = f"dict[{key_type}, {value_type}]"
+                    elif python_type == 'Optional' and inner_type:
+                        type_str = f"Optional[{inner_type}]"
+                    elif python_type == 'Union' and union_types:
+                        type_str = f"Union[{', '.join(union_types)}]"
+
+                    # 変数宣言を生成
+                    if variable_name:
+                        scope_comment = f" # {scope} scope" if scope == 'local' else ""
+                        if initial_value:
+                            code_lines.append(f"{variable_name}: {type_str} = {initial_value}{scope_comment}")
+                        else:
+                            code_lines.append(f"# {variable_name}: {type_str}{scope_comment}")
                     else:
-                        code_lines.append(f"# {variable_name}: {type_str}")
-                else:
-                    code_lines.append(f"# Type: {type_str}")
+                        code_lines.append(f"# Type: {type_str}")
 
-                # 補足コメント
-                if note:
-                    code_lines.append(f"# {note}")
+                    # 補足コメント
+                    if note:
+                        code_lines.append(f"# {note}")
 
-            code_lines.append("")
+                code_lines.append("")
+
+            # 変数変更部分の処理
+            if assign_nodes:
+                if self.include_comments:
+                    code_lines.append("# Variable assignments:")
+                for node in assign_nodes:
+                    data = node.data
+                    target_variable = data.get('targetVariable') if isinstance(data, dict) else getattr(data, 'targetVariable', None)
+                    new_value = data.get('newValue') if isinstance(data, dict) else getattr(data, 'newValue', None)
+                    note = data.get('note') if isinstance(data, dict) else getattr(data, 'note', None)
+
+                    if target_variable and new_value:
+                        code_lines.append(f"{target_variable} = {new_value}")
+                        if note:
+                            code_lines.append(f"# {note}")
+
+                code_lines.append("")
 
         # Phase7: ルートセクションをネスト構造を考慮して処理
         self._process_sections(root_sections, nested_sections, code_lines, snapshot, indent_level=0)

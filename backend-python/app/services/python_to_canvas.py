@@ -2,7 +2,7 @@ import ast
 from typing import List, Dict, Tuple
 from app.models.canvas import (
     FlowSnapshot, StoredNode, StoredEdge, SectionNodeData, LogicNodeData,
-    TypedField, ClassMethod, LogicEdgeData, TypeNodeData
+    TypedField, ClassMethod, LogicEdgeData, VariableNodeData
 )
 from uuid import uuid4
 
