@@ -28,6 +28,7 @@ import {
   DEFAULT_EDGE_CONTROL,
   EDGE_STROKE_WIDTH,
   EDGE_PARALLEL_OFFSET,
+  EMPTY_NODE_FORM,
 } from './constants';
 
 export function toRgba(hex: string, alpha: number) {
@@ -345,6 +346,58 @@ export function isSectionEntryConnection(
   if (!targetNode || targetNode.type !== 'logicNode') return false;
   if (targetNode.parentNode !== sourceNode.id) return false;
   return entryNodeId === connection.target;
+}
+
+export function buildNodeFormFromNode(node: Node<FlowNodeData>): NodeFormState {
+  const base = { ...EMPTY_NODE_FORM };
+  if (node.type === 'sectionNode') {
+    const data = node.data as SectionNodeData;
+    const isFunction = data.sectionType === 'function';
+    const isLoop = data.sectionType === 'while' || data.sectionType === 'for';
+    const isCatch = data.sectionType === 'catch';
+    const allowValidations =
+      data.sectionType === 'function' ||
+      data.sectionType === 'class' ||
+      data.sectionType === 'interface';
+    const catchForm = isCatch ? parseCatchValue(data.catchException ?? '') : null;
+    return {
+      ...base,
+      label: data.label ?? '',
+      note: data.note ?? '',
+      entryNodeId: data.entryNodeId ?? '',
+      functionArgs: data.functionArgs?.map((arg) => ({ ...arg })) ?? [],
+      functionReturnType: data.functionReturnType ?? '',
+      functionReturnValue: data.functionReturnValue ?? '',
+      loopCondition: isLoop ? data.loopCondition ?? '' : '',
+      catchExceptionType: catchForm?.exceptionType ?? '',
+      catchExceptionOther: catchForm?.exceptionOther ?? '',
+      classConstructorArgs: data.classConstructorArgs?.map((arg) => ({ ...arg })) ?? [],
+      classMembers: data.classMembers?.map((arg) => ({ ...arg })) ?? [],
+      classMethods:
+        data.classMethods?.map((method) => ({
+          ...method,
+          args: method.args?.map((arg) => ({ ...arg })) ?? [],
+        })) ?? [],
+      interfaceMembers: data.interfaceMembers?.map((arg) => ({ ...arg })) ?? [],
+      interfaceMethods:
+        data.interfaceMethods?.map((method) => ({
+          ...method,
+          args: method.args?.map((arg) => ({ ...arg })) ?? [],
+        })) ?? [],
+      validations: allowValidations
+        ? data.validations?.map((rule) => ({ ...rule })) ?? []
+        : [],
+      innerElements: [],
+    };
+  }
+  if (node.type !== 'logicNode') return base;
+  const data = node.data as LogicNodeData;
+  return {
+    ...base,
+    label: data.label ?? '',
+    condition: data.condition ?? '',
+    note: data.note ?? '',
+  };
 }
 
 export function getIfControlOptions(
