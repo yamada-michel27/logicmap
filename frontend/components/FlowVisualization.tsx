@@ -52,6 +52,7 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     onConnect,
     onEdgeUpdate,
     onEdgeDoubleClick,
+    isFloatingEditorOpen,
     debugEvent,
     saveName,
     setSaveName,
@@ -253,6 +254,7 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
           onEdgeDoubleClick={onEdgeDoubleClick}
           onPaneClick={onPaneClick}
           connectionMode={ConnectionMode.Loose}
+          nodesConnectable={!isFloatingEditorOpen}
           zoomOnDoubleClick={false}
           onInit={onInit}
           nodeTypes={nodeTypes}
