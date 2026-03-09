@@ -7,10 +7,7 @@ import type {
   EdgeControlType,
   LogicNodeData,
   SectionNodeData,
-  MemoNodeData,
-  StampNodeData,
   TypeNodeData,
-  VariableNodeData,
   FlowNodeData,
   LogicEdgeData,
   NodeRect,
@@ -18,7 +15,6 @@ import type {
   EdgeFormState,
   ValidationRule,
   TypedField,
-  InnerElement,
   NodeOption,
 } from './types';
 import {
@@ -27,7 +23,6 @@ import {
   CATCH_OPTIONS,
   DEFAULT_EDGE_CONTROL,
   EDGE_STROKE_WIDTH,
-  EDGE_PARALLEL_OFFSET,
 } from './constants';
 
 export function toRgba(hex: string, alpha: number) {

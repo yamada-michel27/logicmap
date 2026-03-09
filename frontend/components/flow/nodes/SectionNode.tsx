@@ -1,12 +1,11 @@
 import { Handle, Position, type NodeProps } from 'reactflow';
 import { NodeResizer } from '@reactflow/node-resizer';
 import { CONTROL_STYLE, SECTION_MIN_WIDTH, SECTION_MIN_HEIGHT } from '../constants';
-import { toRgba, formatTypedFields, formatValidationRules } from '../utils';
+import { formatTypedFields, formatValidationRules } from '../utils';
 import type { SectionNodeData } from '../types';
 
 export function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
   const style = CONTROL_STYLE[data.sectionType] || CONTROL_STYLE.flow;
-  const sectionBg = toRgba(style.nodeBg ?? '#f8fafc', 0.28);
   const details: { label: string; value: string }[] = [];
   if (data.sectionType === 'function') {
     const args = formatTypedFields(data.functionArgs);
