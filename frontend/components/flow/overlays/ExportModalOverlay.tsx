@@ -1,20 +1,16 @@
-type Props = {
-  isExportModalOpen: boolean;
-  exportedText: string;
-  isCopied: boolean;
-  copyToClipboard: () => void;
-  downloadFlowStructure: () => void;
-  closeExportModal: () => void;
-};
+import { useFlowUiContext } from '../context/FlowUiContext';
 
-export function ExportModalOverlay({
-  isExportModalOpen,
-  exportedText,
-  isCopied,
-  copyToClipboard,
-  downloadFlowStructure,
-  closeExportModal,
-}: Props) {
+export function ExportModalOverlay() {
+  const { exportModalOverlay } = useFlowUiContext();
+  const {
+    isExportModalOpen,
+    exportedText,
+    isCopied,
+    copyToClipboard,
+    downloadFlowStructure,
+    closeExportModal,
+  } = exportModalOverlay;
+
   if (!isExportModalOpen) return null;
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">

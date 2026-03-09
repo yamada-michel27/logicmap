@@ -1,10 +1,9 @@
-type Props = {
-  pendingNodeDelete: { id: string; label: string } | null;
-  setPendingNodeDelete: (value: { id: string; label: string } | null) => void;
-  deleteNodeById: (id: string) => void;
-};
+import { useFlowUiContext } from '../context/FlowUiContext';
 
-export function NodeDeleteOverlay({ pendingNodeDelete, setPendingNodeDelete, deleteNodeById }: Props) {
+export function NodeDeleteOverlay() {
+  const { nodeDeleteOverlay } = useFlowUiContext();
+  const { pendingNodeDelete, setPendingNodeDelete, deleteNodeById } = nodeDeleteOverlay;
+
   if (!pendingNodeDelete) return null;
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">

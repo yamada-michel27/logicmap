@@ -1,13 +1,10 @@
 import { TEMPLATE_OPTIONS } from '../types';
-import type { TemplateType } from '../types';
+import { useFlowUiContext } from '../context/FlowUiContext';
 
-type Props = {
-  isTemplateModalOpen: boolean;
-  applyTemplate: (id: TemplateType) => void;
-  closeTemplateModal: () => void;
-};
+export function TemplateModalOverlay() {
+  const { templateModalOverlay } = useFlowUiContext();
+  const { isTemplateModalOpen, applyTemplate, closeTemplateModal } = templateModalOverlay;
 
-export function TemplateModalOverlay({ isTemplateModalOpen, applyTemplate, closeTemplateModal }: Props) {
   if (!isTemplateModalOpen) return null;
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">

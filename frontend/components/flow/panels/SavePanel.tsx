@@ -1,31 +1,19 @@
-type SavedFlow = {
-  id: string;
-  name: string;
-};
+import { useFlowUiContext } from '../context/FlowUiContext';
 
-type Props = {
-  saveName: string;
-  setSaveName: (value: string) => void;
-  isSavingFlow: boolean;
-  saveCurrentFlow: () => void;
-  saveError: string | null;
-  savedFlows: SavedFlow[];
-  isLoadingFlows: boolean;
-  restoreSavedFlow: (id: string) => void;
-  deleteSavedFlow: (id: string) => void;
-};
+export function SavePanel() {
+  const { savePanel } = useFlowUiContext();
+  const {
+    saveName,
+    setSaveName,
+    isSavingFlow,
+    saveCurrentFlow,
+    saveError,
+    savedFlows,
+    isLoadingFlows,
+    restoreSavedFlow,
+    deleteSavedFlow,
+  } = savePanel;
 
-export function SavePanel({
-  saveName,
-  setSaveName,
-  isSavingFlow,
-  saveCurrentFlow,
-  saveError,
-  savedFlows,
-  isLoadingFlows,
-  restoreSavedFlow,
-  deleteSavedFlow,
-}: Props) {
   return (
     <div className="absolute left-3 top-3 z-30 flex max-w-[calc(100%-1.5rem)] flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 rounded-md border border-gray-200 bg-white/90 px-3 py-2 text-xs font-semibold text-gray-900 shadow-sm">

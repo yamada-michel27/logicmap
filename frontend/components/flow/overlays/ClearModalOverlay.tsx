@@ -1,10 +1,9 @@
-type Props = {
-  isClearModalOpen: boolean;
-  closeClearModal: () => void;
-  clearCanvas: () => void;
-};
+import { useFlowUiContext } from '../context/FlowUiContext';
 
-export function ClearModalOverlay({ isClearModalOpen, closeClearModal, clearCanvas }: Props) {
+export function ClearModalOverlay() {
+  const { clearModalOverlay } = useFlowUiContext();
+  const { isClearModalOpen, closeClearModal, clearCanvas } = clearModalOverlay;
+
   if (!isClearModalOpen) return null;
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">

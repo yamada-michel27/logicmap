@@ -1,20 +1,16 @@
-type Props = {
-  isPythonImportModalOpen: boolean;
-  pythonInputCode: string;
-  setPythonInputCode: (value: string) => void;
-  isCanvasGenerating: boolean;
-  generateCanvasFromPython: () => void;
-  closePythonImportModal: () => void;
-};
+import { useFlowUiContext } from '../context/FlowUiContext';
 
-export function PythonImportModalOverlay({
-  isPythonImportModalOpen,
-  pythonInputCode,
-  setPythonInputCode,
-  isCanvasGenerating,
-  generateCanvasFromPython,
-  closePythonImportModal,
-}: Props) {
+export function PythonImportModalOverlay() {
+  const { pythonImportModalOverlay } = useFlowUiContext();
+  const {
+    isPythonImportModalOpen,
+    pythonInputCode,
+    setPythonInputCode,
+    isCanvasGenerating,
+    generateCanvasFromPython,
+    closePythonImportModal,
+  } = pythonImportModalOverlay;
+
   if (!isPythonImportModalOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
