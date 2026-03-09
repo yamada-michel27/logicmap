@@ -27,21 +27,32 @@ func (r *FlowPostgresRepository) CountByUser(ctx context.Context, userID string)
 
 func (r *FlowPostgresRepository) Create(
 	ctx context.Context,
-	userID, name string,
+	userID, name, description string,
+	links []string,
 	snapshot json.RawMessage,
 ) (*flow.Flow, error) {
+	linksJSON, err := json.Marshal(links)
+	if err != nil {
+		return nil, err
+	}
+	linksPayload := json.RawMessage(linksJSON)
+
 	row := r.db.QueryRowContext(
 		ctx,
-		`INSERT INTO flows (user_id, name, snapshot)
-		 VALUES ($1, $2, $3)
+		`INSERT INTO flows (user_id, name, description, links, snapshot)
+		 VALUES ($1, $2, $3, $4, $5)
 		 RETURNING id, created_at, updated_at`,
 		userID,
 		name,
+		description,
+		linksPayload,
 		snapshot,
 	)
 	var result flow.Flow
 	result.UserID = userID
 	result.Name = name
+	result.Description = description
+	result.Links = append([]string(nil), links...)
 	result.Snapshot = snapshot
 	if err := row.Scan(&result.ID, &result.CreatedAt, &result.UpdatedAt); err != nil {
 		return nil, err
@@ -54,10 +65,10 @@ func (r *FlowPostgresRepository) ListByUser(
 	userID, search string,
 	limit int,
 ) ([]flow.Summary, error) {
-	query := `SELECT id, name, created_at, updated_at
+	query := `SELECT id, name, description, links, created_at, updated_at
 		FROM flows
 		WHERE user_id = $1
-		AND ($2 = '' OR name ILIKE '%' || $2 || '%')
+		AND ($2 = '' OR name ILIKE '%' || $2 || '%' OR description ILIKE '%' || $2 || '%')
 		ORDER BY created_at DESC
 		LIMIT $3`
 	rows, err := r.db.QueryContext(ctx, query, userID, search, limit)
@@ -69,9 +80,18 @@ func (r *FlowPostgresRepository) ListByUser(
 	items := []flow.Summary{}
 	for rows.Next() {
 		var item flow.Summary
-		if err := rows.Scan(&item.ID, &item.Name, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		var linksJSON []byte
+		if err := rows.Scan(
+			&item.ID,
+			&item.Name,
+			&item.Description,
+			&linksJSON,
+			&item.CreatedAt,
+			&item.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
+		item.Links = parseLinksJSON(linksJSON)
 		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
@@ -86,44 +106,72 @@ func (r *FlowPostgresRepository) GetByID(
 ) (*flow.Flow, error) {
 	row := r.db.QueryRowContext(
 		ctx,
-		`SELECT id, user_id, name, snapshot, created_at, updated_at
+		`SELECT id, user_id, name, description, links, snapshot, created_at, updated_at
 		 FROM flows
 		 WHERE id = $1 AND user_id = $2`,
 		flowID,
 		userID,
 	)
 	var item flow.Flow
+	var linksJSON []byte
 	var snapshot []byte
-	if err := row.Scan(&item.ID, &item.UserID, &item.Name, &snapshot, &item.CreatedAt, &item.UpdatedAt); err != nil {
+	if err := row.Scan(
+		&item.ID,
+		&item.UserID,
+		&item.Name,
+		&item.Description,
+		&linksJSON,
+		&snapshot,
+		&item.CreatedAt,
+		&item.UpdatedAt,
+	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	item.Links = parseLinksJSON(linksJSON)
 	item.Snapshot = json.RawMessage(snapshot)
 	return &item, nil
 }
 
 func (r *FlowPostgresRepository) UpdateByID(
 	ctx context.Context,
-	userID, flowID string,
+	userID, flowID, name, description string,
+	links []string,
 	snapshot json.RawMessage,
 ) (*flow.Flow, error) {
+	linksJSON, err := json.Marshal(links)
+	if err != nil {
+		return nil, err
+	}
+	linksPayload := json.RawMessage(linksJSON)
+
 	row := r.db.QueryRowContext(
 		ctx,
 		`UPDATE flows
-		 SET snapshot = $3, updated_at = CURRENT_TIMESTAMP
+		 SET name = $3,
+		     description = $4,
+		     links = $5,
+		     snapshot = $6,
+		     updated_at = CURRENT_TIMESTAMP
 		 WHERE id = $1 AND user_id = $2
-		 RETURNING id, user_id, name, created_at, updated_at`,
+		 RETURNING id, user_id, name, description, links, created_at, updated_at`,
 		flowID,
 		userID,
+		name,
+		description,
+		linksPayload,
 		snapshot,
 	)
 	var item flow.Flow
-	err := row.Scan(
+	var returnedLinksJSON []byte
+	err = row.Scan(
 		&item.ID,
 		&item.UserID,
 		&item.Name,
+		&item.Description,
+		&returnedLinksJSON,
 		&item.CreatedAt,
 		&item.UpdatedAt,
 	)
@@ -133,6 +181,7 @@ func (r *FlowPostgresRepository) UpdateByID(
 		}
 		return nil, err
 	}
+	item.Links = parseLinksJSON(returnedLinksJSON)
 	item.Snapshot = snapshot
 	return &item, nil
 }
@@ -155,4 +204,16 @@ func (r *FlowPostgresRepository) DeleteByID(
 		return false, err
 	}
 	return affected > 0, nil
+}
+
+func parseLinksJSON(raw []byte) []string {
+	if len(raw) == 0 {
+		return []string{}
+	}
+
+	var links []string
+	if err := json.Unmarshal(raw, &links); err != nil {
+		return []string{}
+	}
+	return links
 }

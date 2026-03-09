@@ -20,11 +20,24 @@ type FlowService struct {
 	limit int
 }
 
+type UpdateFlowInput struct {
+	Name        *string
+	Description *string
+	Links       *[]string
+	Snapshot    *json.RawMessage
+}
+
 func NewFlowService(repo flow.Repository, limit int) *FlowService {
 	return &FlowService{repo: repo, limit: limit}
 }
 
-func (s *FlowService) Create(ctx context.Context, userID, name string, snapshot json.RawMessage) (*flow.Flow, error) {
+func (s *FlowService) Create(
+	ctx context.Context,
+	userID, name, description string,
+	links []string,
+	snapshot json.RawMessage,
+) (*flow.Flow, error) {
+	name = strings.TrimSpace(name)
 	if strings.TrimSpace(userID) == "" || strings.TrimSpace(name) == "" || len(snapshot) == 0 {
 		return nil, ErrInvalidInput
 	}
@@ -35,7 +48,7 @@ func (s *FlowService) Create(ctx context.Context, userID, name string, snapshot 
 	if count >= s.limit {
 		return nil, ErrLimitReached
 	}
-	return s.repo.Create(ctx, userID, name, snapshot)
+	return s.repo.Create(ctx, userID, name, strings.TrimSpace(description), normalizeLinks(links), snapshot)
 }
 
 func (s *FlowService) List(ctx context.Context, userID, search string) ([]flow.Summary, error) {
@@ -59,18 +72,52 @@ func (s *FlowService) Get(ctx context.Context, userID, flowID string) (*flow.Flo
 	return item, nil
 }
 
-func (s *FlowService) Update(ctx context.Context, userID, flowID string, snapshot json.RawMessage) (*flow.Flow, error) {
-	if strings.TrimSpace(userID) == "" || strings.TrimSpace(flowID) == "" || len(snapshot) == 0 {
+func (s *FlowService) Update(
+	ctx context.Context,
+	userID, flowID string,
+	input UpdateFlowInput,
+) (*flow.Flow, error) {
+	if strings.TrimSpace(userID) == "" || strings.TrimSpace(flowID) == "" {
 		return nil, ErrInvalidInput
 	}
-	item, err := s.repo.UpdateByID(ctx, userID, flowID, snapshot)
+
+	if input.Name == nil && input.Description == nil && input.Links == nil && input.Snapshot == nil {
+		return nil, ErrInvalidInput
+	}
+
+	current, err := s.repo.GetByID(ctx, userID, flowID)
 	if err != nil {
 		return nil, err
 	}
-	if item == nil {
+	if current == nil {
 		return nil, ErrNotFound
 	}
-	return item, nil
+
+	name := current.Name
+	description := current.Description
+	links := append([]string(nil), current.Links...)
+	snapshot := current.Snapshot
+
+	if input.Name != nil {
+		name = strings.TrimSpace(*input.Name)
+		if name == "" {
+			return nil, ErrInvalidInput
+		}
+	}
+	if input.Description != nil {
+		description = strings.TrimSpace(*input.Description)
+	}
+	if input.Links != nil {
+		links = normalizeLinks(*input.Links)
+	}
+	if input.Snapshot != nil {
+		if len(*input.Snapshot) == 0 {
+			return nil, ErrInvalidInput
+		}
+		snapshot = *input.Snapshot
+	}
+
+	return s.repo.UpdateByID(ctx, userID, flowID, name, description, links, snapshot)
 }
 
 func (s *FlowService) Delete(ctx context.Context, userID, flowID string) error {
@@ -85,4 +132,20 @@ func (s *FlowService) Delete(ctx context.Context, userID, flowID string) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+func normalizeLinks(links []string) []string {
+	if len(links) == 0 {
+		return []string{}
+	}
+
+	normalized := make([]string, 0, len(links))
+	for _, link := range links {
+		trimmed := strings.TrimSpace(link)
+		if trimmed == "" {
+			continue
+		}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
 }

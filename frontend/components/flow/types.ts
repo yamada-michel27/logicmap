@@ -168,6 +168,8 @@ export type FlowSnapshot = {
 export type SavedFlowSummary = {
   id: string;
   name: string;
+  description: string;
+  links: string[];
   createdAt: string;
   updatedAt: string;
 };

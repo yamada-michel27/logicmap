@@ -47,23 +47,29 @@ func (h *FlowHandler) HandleFlowByID(w http.ResponseWriter, r *http.Request) {
 }
 
 type createFlowRequest struct {
-	Name     string          `json:"name"`
-	Snapshot json.RawMessage `json:"snapshot"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Links       []string        `json:"links"`
+	Snapshot    json.RawMessage `json:"snapshot"`
 }
 
 type flowSummaryResponse struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	CreatedAt string `json:"createdAt"`
-	UpdatedAt string `json:"updatedAt"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Links       []string `json:"links"`
+	CreatedAt   string   `json:"createdAt"`
+	UpdatedAt   string   `json:"updatedAt"`
 }
 
 type flowDetailResponse struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Snapshot  json.RawMessage `json:"snapshot"`
-	CreatedAt string          `json:"createdAt"`
-	UpdatedAt string          `json:"updatedAt"`
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Links       []string        `json:"links"`
+	Snapshot    json.RawMessage `json:"snapshot"`
+	CreatedAt   string          `json:"createdAt"`
+	UpdatedAt   string          `json:"updatedAt"`
 }
 
 func (h *FlowHandler) listFlows(w http.ResponseWriter, r *http.Request) {
@@ -83,10 +89,12 @@ func (h *FlowHandler) listFlows(w http.ResponseWriter, r *http.Request) {
 	response := make([]flowSummaryResponse, 0, len(items))
 	for _, item := range items {
 		response = append(response, flowSummaryResponse{
-			ID:        item.ID,
-			Name:      item.Name,
-			CreatedAt: item.CreatedAt.Format(time.RFC3339),
-			UpdatedAt: item.UpdatedAt.Format(time.RFC3339),
+			ID:          item.ID,
+			Name:        item.Name,
+			Description: item.Description,
+			Links:       item.Links,
+			CreatedAt:   item.CreatedAt.Format(time.RFC3339),
+			UpdatedAt:   item.UpdatedAt.Format(time.RFC3339),
 		})
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -106,7 +114,14 @@ func (h *FlowHandler) createFlow(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := contextWithTimeout(r, 5*time.Second)
 	defer cancel()
-	result, err := h.service.Create(ctx, userID, strings.TrimSpace(req.Name), req.Snapshot)
+	result, err := h.service.Create(
+		ctx,
+		userID,
+		strings.TrimSpace(req.Name),
+		req.Description,
+		req.Links,
+		req.Snapshot,
+	)
 	if err != nil {
 		switch err {
 		case usecase.ErrLimitReached:
@@ -119,15 +134,20 @@ func (h *FlowHandler) createFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, flowSummaryResponse{
-		ID:        result.ID,
-		Name:      result.Name,
-		CreatedAt: result.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: result.UpdatedAt.Format(time.RFC3339),
+		ID:          result.ID,
+		Name:        result.Name,
+		Description: result.Description,
+		Links:       result.Links,
+		CreatedAt:   result.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   result.UpdatedAt.Format(time.RFC3339),
 	})
 }
 
 type updateFlowRequest struct {
-	Snapshot json.RawMessage `json:"snapshot"`
+	Name        *string          `json:"name"`
+	Description *string          `json:"description"`
+	Links       *[]string        `json:"links"`
+	Snapshot    *json.RawMessage `json:"snapshot"`
 }
 
 func (h *FlowHandler) updateFlow(w http.ResponseWriter, r *http.Request, flowID string) {
@@ -144,7 +164,12 @@ func (h *FlowHandler) updateFlow(w http.ResponseWriter, r *http.Request, flowID 
 	}
 	ctx, cancel := contextWithTimeout(r, 5*time.Second)
 	defer cancel()
-	result, err := h.service.Update(ctx, userID, flowID, req.Snapshot)
+	result, err := h.service.Update(ctx, userID, flowID, usecase.UpdateFlowInput{
+		Name:        req.Name,
+		Description: req.Description,
+		Links:       req.Links,
+		Snapshot:    req.Snapshot,
+	})
 	if err != nil {
 		switch err {
 		case usecase.ErrNotFound:
@@ -157,10 +182,12 @@ func (h *FlowHandler) updateFlow(w http.ResponseWriter, r *http.Request, flowID 
 		return
 	}
 	writeJSON(w, http.StatusOK, flowSummaryResponse{
-		ID:        result.ID,
-		Name:      result.Name,
-		CreatedAt: result.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: result.UpdatedAt.Format(time.RFC3339),
+		ID:          result.ID,
+		Name:        result.Name,
+		Description: result.Description,
+		Links:       result.Links,
+		CreatedAt:   result.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   result.UpdatedAt.Format(time.RFC3339),
 	})
 }
 
@@ -186,11 +213,13 @@ func (h *FlowHandler) getFlow(w http.ResponseWriter, r *http.Request, flowID str
 		return
 	}
 	writeJSON(w, http.StatusOK, flowDetailResponse{
-		ID:        item.ID,
-		Name:      item.Name,
-		Snapshot:  item.Snapshot,
-		CreatedAt: item.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: item.UpdatedAt.Format(time.RFC3339),
+		ID:          item.ID,
+		Name:        item.Name,
+		Description: item.Description,
+		Links:       item.Links,
+		Snapshot:    item.Snapshot,
+		CreatedAt:   item.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   item.UpdatedAt.Format(time.RFC3339),
 	})
 }
 
