@@ -37,8 +37,6 @@ export function useFlowModalState() {
   const [edgeForm, setEdgeForm] = useState<EdgeFormState>({ ...EMPTY_EDGE_FORM });
   const [pendingStamp, setPendingStamp] = useState<StampType | null>(null);
 
-  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
-
   const resetTransientState = useCallback(() => {
     setPendingConnection(null);
     setPendingNodeClientPosition(null);
@@ -80,10 +78,6 @@ export function useFlowModalState() {
     setVariableForm(createDefaultVariableForm());
   }, [setPendingVariableEdit, setVariableForm]);
 
-  const closeTemplateModal = useCallback(() => {
-    setIsTemplateModalOpen(false);
-  }, [setIsTemplateModalOpen]);
-
   return {
     pendingConnection,
     setPendingConnection,
@@ -115,11 +109,8 @@ export function useFlowModalState() {
     setEdgeForm,
     pendingStamp,
     setPendingStamp,
-    isTemplateModalOpen,
-    setIsTemplateModalOpen,
     resetTransientState,
     cancelMemoModal,
     resetVariableEditState,
-    closeTemplateModal,
   };
 }

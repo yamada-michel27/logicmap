@@ -47,6 +47,7 @@ export function NodeModalSectionForm({
   const isClass = sectionType === 'class';
   const isInterface = sectionType === 'interface';
   const isMain = sectionType === 'main';
+  const isProcess = sectionType === 'process';
   const isLoop = sectionType === 'while' || sectionType === 'for';
   const isConditional = sectionType === 'if' || sectionType === 'elif';
   const isCatch = sectionType === 'catch';
@@ -62,11 +63,15 @@ export function NodeModalSectionForm({
     ? { label: 'インターフェース名', placeholder: '例: UserRepository' }
     : isMain
     ? { label: 'メイン処理名', placeholder: '例: MainProcess' }
+    : isProcess
+    ? { label: 'Process名', placeholder: '例: UserOnboarding' }
     : isConditional
     ? { label: '条件式', placeholder: sectionType === 'if' ? '例: user != null' : '例: retryCount < 3' }
     : null;
   const notePlaceholder = isFunction || isClass || isInterface
     ? '目的や制約、利用時の補足を入力'
+    : isProcess
+    ? 'Process全体の目的や範囲を入力'
     : isLoop
     ? 'ループの意図や終了条件の補足を入力'
     : isConditional || isTryOrElse

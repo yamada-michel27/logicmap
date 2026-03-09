@@ -1,7 +1,19 @@
 import type { Node, Edge } from 'reactflow';
 
 export type NodeKind = 'start' | 'end' | 'normal' | 'break' | 'continue' | 'return';
-export type SectionType = 'function' | 'class' | 'interface' | 'main' | 'try' | 'catch' | 'while' | 'for' | 'if' | 'elif' | 'else';
+export type SectionType =
+  | 'function'
+  | 'class'
+  | 'interface'
+  | 'main'
+  | 'process'
+  | 'try'
+  | 'catch'
+  | 'while'
+  | 'for'
+  | 'if'
+  | 'elif'
+  | 'else';
 
 export const EDGE_CONTROL_OPTIONS = ['flow', 'if', 'elif', 'else', 'break', 'continue'] as const;
 
@@ -83,15 +95,7 @@ export const STAMP_OPTIONS = [
   { id: 'consult', emoji: '🚩', label: '要相談' },
 ] as const;
 
-export const TEMPLATE_OPTIONS = [
-  { id: 'dfs', name: 'DFS（深さ優先探索）', description: 'スタックを使用した深さ優先探索' },
-  { id: 'bfs', name: 'BFS（幅優先探索）', description: 'キューを使用した幅優先探索' },
-  { id: 'binary_search', name: '二分探索', description: 'ソート済み配列での効率的な探索' },
-  { id: 'a_star', name: 'A*探索', description: 'ヒューリスティックを使用した最短経路探索' },
-] as const;
-
 export type StampType = (typeof STAMP_OPTIONS)[number]['id'];
-export type TemplateType = (typeof TEMPLATE_OPTIONS)[number]['id'];
 
 export type MemoNodeData = {
   text: string;
