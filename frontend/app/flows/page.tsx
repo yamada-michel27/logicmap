@@ -3,61 +3,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-
-type SavedFlowSummary = {
-  id: string;
-  name: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-const USER_ID_STORAGE_KEY = 'logicmap:user-id';
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? '';
-
-function getUserId() {
-  if (typeof window === 'undefined') return 'unknown';
-  const stored = window.localStorage.getItem(USER_ID_STORAGE_KEY);
-  if (stored) return stored;
-  const generated =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID()
-      : `user-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  window.localStorage.setItem(USER_ID_STORAGE_KEY, generated);
-  return generated;
-}
-
-function resolveApiUrl(path: string) {
-  if (!API_BASE_URL) return path;
-  return `${API_BASE_URL}${path}`;
-}
-
-// APIフェッチ関数（FlowVisualization.tsxから移植）
-async function apiFetch<T>(url: string, options?: RequestInit): Promise<T | null> {
-  try {
-    const headers = new Headers(options?.headers);
-    headers.set('Content-Type', 'application/json');
-    headers.set('X-User-Id', getUserId());
-
-    const response = await fetch(resolveApiUrl(url), {
-      ...options,
-      headers,
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('API fetch error:', error);
-    return null;
-  }
-}
+import { apiFetch } from '@/components/flow/api';
+import type { SavedFlowSummary } from '@/components/flow/types';
 
 export default function FlowsPage() {
   const [flows, setFlows] = useState<SavedFlowSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingFlowId, setDeletingFlowId] = useState<string | null>(null);
   const router = useRouter();
 
   const fetchFlows = useCallback(async () => {
@@ -66,8 +19,8 @@ export default function FlowsPage() {
 
     try {
       const flowList = await apiFetch<SavedFlowSummary[]>('/flows', { method: 'GET' });
-      setFlows(flowList ?? []);
-    } catch (err) {
+      setFlows(flowList);
+    } catch {
       setError('フロー一覧の取得に失敗しました');
     } finally {
       setLoading(false);
@@ -81,6 +34,31 @@ export default function FlowsPage() {
   const handleFlowClick = (flowId: string) => {
     router.push(`/?flowId=${flowId}`);
   };
+
+  const handleDeleteFlow = useCallback(
+    async (flowId: string) => {
+      const targetFlow = flows.find((flow) => flow.id === flowId);
+      const flowName = targetFlow?.name ?? 'このフロー';
+      const shouldDelete = window.confirm(`「${flowName}」を削除します。よろしいですか？`);
+
+      if (!shouldDelete) {
+        return;
+      }
+
+      setDeletingFlowId(flowId);
+      setError(null);
+
+      try {
+        await apiFetch<null>(`/flows/${flowId}`, { method: 'DELETE' });
+        setFlows((currentFlows) => currentFlows.filter((flow) => flow.id !== flowId));
+      } catch {
+        setError('フローの削除に失敗しました');
+      } finally {
+        setDeletingFlowId(null);
+      }
+    },
+    [flows]
+  );
 
   const handleBackToEditor = () => {
     router.push('/');
@@ -118,7 +96,7 @@ export default function FlowsPage() {
         {/* メインコンテンツ */}
         <div className="flex-1">
           <div className="rounded-2xl glass-panel p-6 text-slate-900 dark:text-white">
-            {error ? (
+            {error && flows.length === 0 ? (
               <div className="text-center py-8">
                 <div className="text-red-500 mb-4">{error}</div>
                 <button
@@ -141,26 +119,53 @@ export default function FlowsPage() {
                 </Link>
               </div>
             ) : (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {flows.map((flow) => (
-                  <div
-                    key={flow.id}
-                    onClick={() => handleFlowClick(flow.id)}
-                    className="p-4 rounded-lg bg-white/20 border border-white/60 backdrop-blur-xl shadow-xl hover:bg-white/30 cursor-pointer transition-all dark:bg-slate-900/30 dark:border-slate-500/40 dark:hover:bg-slate-900/40"
-                  >
-                    <h3 className="font-semibold text-lg mb-2 truncate">
-                      {flow.name}
-                    </h3>
-                    <div className="text-sm text-slate-600 dark:text-slate-300 space-y-1">
+              <div className="space-y-4">
+                {error ? (
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    {error}
+                  </div>
+                ) : null}
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {flows.map((flow) => (
+                    <div
+                      key={flow.id}
+                      className="flex min-h-44 flex-col justify-between rounded-lg border border-white/60 bg-white/20 p-4 shadow-xl backdrop-blur-xl transition-all dark:border-slate-500/40 dark:bg-slate-900/30"
+                    >
                       <div>
-                        作成: {new Date(flow.createdAt).toLocaleDateString('ja-JP')}
+                        <h3 className="mb-2 truncate text-lg font-semibold">{flow.name}</h3>
+                        <div className="space-y-1 text-sm text-slate-600 dark:text-slate-300">
+                          <div>
+                            作成: {new Date(flow.createdAt).toLocaleDateString('ja-JP')}
+                          </div>
+                          <div>
+                            更新: {new Date(flow.updatedAt).toLocaleDateString('ja-JP')}
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        更新: {new Date(flow.updatedAt).toLocaleDateString('ja-JP')}
+                      <div className="mt-4 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleFlowClick(flow.id)}
+                          className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700"
+                        >
+                          エディターで開く
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteFlow(flow.id)}
+                          disabled={deletingFlowId === flow.id}
+                          className={`rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                            deletingFlowId === flow.id
+                              ? 'cursor-not-allowed bg-rose-200 text-rose-500'
+                              : 'bg-rose-100 text-rose-700 hover:bg-rose-200'
+                          }`}
+                        >
+                          {deletingFlowId === flow.id ? '削除中...' : '削除'}
+                        </button>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
           </div>

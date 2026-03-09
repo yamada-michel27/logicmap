@@ -12,10 +12,6 @@ type FlowUiController = Pick<
   | 'isSavingFlow'
   | 'saveCurrentFlow'
   | 'saveError'
-  | 'savedFlows'
-  | 'isLoadingFlows'
-  | 'restoreSavedFlow'
-  | 'deleteSavedFlow'
   | 'currentFlowId'
   | 'currentFlowName'
   | 'updateFlow'
@@ -72,10 +68,6 @@ type FlowUiContextValue = {
     | 'isSavingFlow'
     | 'saveCurrentFlow'
     | 'saveError'
-    | 'savedFlows'
-    | 'isLoadingFlows'
-    | 'restoreSavedFlow'
-    | 'deleteSavedFlow'
   >;
   actionPanel: Pick<
     FlowUiController,
