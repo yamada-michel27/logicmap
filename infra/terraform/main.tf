@@ -611,6 +611,10 @@ module "backend_service" {
       },
     ],
   )
+  secret_arns = concat(
+    var.backend_secret_arns,
+    [aws_secretsmanager_secret.db_master_password.arn],
+  )
   tags    = local.tags
 }
 
