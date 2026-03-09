@@ -1,18 +1,9 @@
-type Props = {
-  isImportModalOpen: boolean;
-  importText: string;
-  setImportText: (value: string) => void;
-  importFlowFromText: () => void;
-  closeImportModal: () => void;
-};
+import { useFlowUiContext } from '../context/FlowUiContext';
 
-export function ImportModalOverlay({
-  isImportModalOpen,
-  importText,
-  setImportText,
-  importFlowFromText,
-  closeImportModal,
-}: Props) {
+export function ImportModalOverlay() {
+  const { importModalOverlay } = useFlowUiContext();
+  const { isImportModalOpen, importText, setImportText, importFlowFromText, closeImportModal } = importModalOverlay;
+
   if (!isImportModalOpen) return null;
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">

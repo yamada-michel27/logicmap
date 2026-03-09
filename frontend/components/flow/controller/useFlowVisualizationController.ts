@@ -664,3 +664,5 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     clearCanvas,
   };
 }
+
+export type FlowVisualizationController = ReturnType<typeof useFlowVisualizationController>;

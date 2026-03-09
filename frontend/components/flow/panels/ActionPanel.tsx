@@ -1,37 +1,25 @@
 import { STAMP_OPTIONS } from '../types';
 import type { StampType } from '../types';
+import { useFlowUiContext } from '../context/FlowUiContext';
 
-type Props = {
-  currentFlowId: string | null;
-  currentFlowName: string | null;
-  updateFlow: () => void;
-  openTemplateModal: () => void;
-  createNewCanvas: () => void;
-  openExportModal: () => void;
-  openImportModal: () => void;
-  generatePythonCode: () => void;
-  openPythonImportModal: () => void;
-  openClearModal: () => void;
-  openMemoCreateModal: () => void;
-  pendingStamp: StampType | null;
-  setPendingStamp: (value: StampType | null) => void;
-};
+export function ActionPanel() {
+  const { actionPanel } = useFlowUiContext();
+  const {
+    currentFlowId,
+    currentFlowName,
+    updateFlow,
+    openTemplateModal,
+    createNewCanvas,
+    openExportModal,
+    openImportModal,
+    generatePythonCode,
+    openPythonImportModal,
+    openClearModal,
+    openMemoCreateModal,
+    pendingStamp,
+    setPendingStamp,
+  } = actionPanel;
 
-export function ActionPanel({
-  currentFlowId,
-  currentFlowName,
-  updateFlow,
-  openTemplateModal,
-  createNewCanvas,
-  openExportModal,
-  openImportModal,
-  generatePythonCode,
-  openPythonImportModal,
-  openClearModal,
-  openMemoCreateModal,
-  pendingStamp,
-  setPendingStamp,
-}: Props) {
   return (
     <div className="absolute right-3 top-3 z-30 flex flex-col items-end gap-2">
       {currentFlowId && (

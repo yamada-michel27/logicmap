@@ -1,22 +1,17 @@
-type Props = {
-  isPythonModalOpen: boolean;
-  isPythonGenerating: boolean;
-  pythonCode: string;
-  isPythonCopied: boolean;
-  copyPythonCode: () => void;
-  downloadPythonFile: () => void;
-  closePythonModal: () => void;
-};
+import { useFlowUiContext } from '../context/FlowUiContext';
 
-export function PythonModalOverlay({
-  isPythonModalOpen,
-  isPythonGenerating,
-  pythonCode,
-  isPythonCopied,
-  copyPythonCode,
-  downloadPythonFile,
-  closePythonModal,
-}: Props) {
+export function PythonModalOverlay() {
+  const { pythonModalOverlay } = useFlowUiContext();
+  const {
+    isPythonModalOpen,
+    isPythonGenerating,
+    pythonCode,
+    isPythonCopied,
+    copyPythonCode,
+    downloadPythonFile,
+    closePythonModal,
+  } = pythonModalOverlay;
+
   if (!isPythonModalOpen) return null;
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/40 p-4">

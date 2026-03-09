@@ -1,15 +1,10 @@
-type DebugEvent = {
-  type: string;
-  x: number;
-  y: number;
-  count: number;
-} | null;
+import { useFlowUiContext } from '../context/FlowUiContext';
 
-type Props = {
-  debugEvent: DebugEvent;
-};
+export function DebugPanel() {
+  const {
+    debugPanel: { debugEvent },
+  } = useFlowUiContext();
 
-export function DebugPanel({ debugEvent }: Props) {
   return (
     <div className="absolute right-3 top-24 z-30 rounded-md border border-gray-300 bg-white px-3 py-2 text-xs text-gray-900 shadow-sm">
       <div className="font-semibold">Debug: Pane Event</div>
