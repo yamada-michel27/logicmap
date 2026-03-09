@@ -81,7 +81,8 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     closeTemplateModal,
   } = useFlowModalState();
   const { wrapperRef, reactFlowInstance, onInit, consumePaneClickType } = useCanvasInteractionState();
-  const { declaredVariables, validateTypeCompatibility } = useVariableRegistryState(nodes);
+  const { declaredVariables, declaredVariableEntries, validateTypeCompatibility } =
+    useVariableRegistryState(nodes);
   const { debugEvent, recordDebugEvent } = useDebugEventState();
   const nextNodeSeq = useRef(1);
   const nextEdgeSeq = useRef(1);
@@ -648,6 +649,7 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     nodeModalOption,
     setNodeModalOption,
     declaredVariables,
+    declaredVariableEntries,
     validateTypeCompatibility,
     applyNodeCreation,
     applyNodeEdit,

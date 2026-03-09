@@ -11,6 +11,7 @@ export type DeclaredVariableInfo = {
   type: PythonType;
   scope: VariableScope;
   nodeId: string;
+  initialValue: string;
 };
 
 export type TypeCompatibilityResult = {
@@ -45,6 +46,7 @@ export function collectDeclaredVariables(
           type: data.pythonType,
           scope: data.scope || 'global',
           nodeId: node.id,
+          initialValue: data.initialValue ?? '',
         });
       }
     }

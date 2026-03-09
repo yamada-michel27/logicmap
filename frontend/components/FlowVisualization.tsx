@@ -28,6 +28,7 @@ import { ClearModalOverlay } from './flow/overlays/ClearModalOverlay';
 import { SavePanel } from './flow/panels/SavePanel';
 import { ActionPanel } from './flow/panels/ActionPanel';
 import { DebugPanel } from './flow/panels/DebugPanel';
+import { InitialValuesPanel } from './flow/panels/InitialValuesPanel';
 
 type FlowVisualizationProps = {
   initialFlowId?: string | null;
@@ -106,6 +107,7 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     nodeModalOption,
     setNodeModalOption,
     declaredVariables,
+    declaredVariableEntries,
     validateTypeCompatibility,
     applyNodeCreation,
     applyNodeEdit,
@@ -260,6 +262,7 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
           <Controls />
           <MiniMap />
           <Background gap={12} size={1} />
+          <InitialValuesPanel variables={declaredVariableEntries} />
         </ReactFlow>
         <EdgeModal
           pendingConnection={pendingConnection}

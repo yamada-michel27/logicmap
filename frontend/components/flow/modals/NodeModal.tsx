@@ -5,12 +5,11 @@ import type {
   FlowNodeData,
   NodeFormState,
   NodeOption,
-  PythonType,
   VariableNodeData,
-  VariableScope,
 } from '../types';
 import { NODE_OPTION_GROUPS } from '../constants';
 import { getNodeOptionForNode } from '../utils';
+import type { DeclaredVariableInfo } from '../services/flowInteractionService';
 import { NodeModalLogicForm } from './NodeModalLogicForm';
 import { NodeModalSectionForm } from './NodeModalSectionForm';
 import { NodeModalVariableForm } from './NodeModalVariableForm';
@@ -25,7 +24,7 @@ export type NodeModalProps = {
   setNodeModalOption: Dispatch<SetStateAction<NodeOption | null>>;
   variableForm: VariableNodeData;
   setVariableForm: Dispatch<SetStateAction<VariableNodeData>>;
-  declaredVariables: Map<string, { type: PythonType; scope: VariableScope; nodeId: string }>;
+  declaredVariables: Map<string, DeclaredVariableInfo>;
   validateTypeCompatibility: (
     targetVariable: string,
     newValue: string
