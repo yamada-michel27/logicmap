@@ -13,6 +13,7 @@ import type { DeclaredVariableInfo } from '../services/flowInteractionService';
 import { NodeModalLogicForm } from './NodeModalLogicForm';
 import { NodeModalSectionForm } from './NodeModalSectionForm';
 import { NodeModalVariableForm } from './NodeModalVariableForm';
+import { FloatingEditorPanel } from './FloatingEditorPanel';
 
 export type NodeModalProps = {
   pendingNodeClientPosition: { x: number; y: number } | null;
@@ -71,90 +72,16 @@ export default function NodeModal({
     selectedOption?.kind === 'start' || selectedOption?.kind === 'end';
 
   return (
-    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
-      <div className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
-        <h3 className="text-lg font-semibold text-gray-900">
-          {isEdit ? 'ノード種別を変更' : 'ノード種別を選択'}
-        </h3>
-        <p className="mt-1 text-sm text-gray-600">
-          {isEdit
-            ? '変更したいノード種別を選んでください。'
-            : '追加したい要素をノードとセクションから選び、必要な情報を入力してください。'}
-        </p>
-
-        <div className="mt-4 grid gap-4">
-          {NODE_OPTION_GROUPS.map((group) => (
-            <section key={group.id} className="rounded-lg border border-gray-200 p-4">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-gray-900">{group.label}</div>
-                  <p className="mt-1 text-xs text-gray-500">{group.description}</p>
-                </div>
-                <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-600">
-                  {group.options.length}種
-                </span>
-              </div>
-
-              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {group.options.map((option) => (
-                  <button
-                    key={`${group.id}-${option.kind}-${option.sectionType ?? option.label}`}
-                    type="button"
-                    className={`rounded-md border px-3 py-2 text-sm font-semibold ${
-                      selectedOption &&
-                      option.kind === selectedOption.kind &&
-                      option.sectionType === selectedOption.sectionType
-                        ? 'border-gray-900 bg-gray-900 text-white'
-                        : 'border-gray-200 text-gray-900 hover:bg-gray-50'
-                    }`}
-                    onClick={() => setNodeModalOption(option)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-
-        <div className="mt-4 border-t border-gray-100 pt-4">
-          <div className="text-xs font-semibold text-gray-700">詳細入力</div>
-          {!selectedOption ? (
-            <div className="mt-2 text-xs text-gray-500">
-              種別を選択してから詳細を入力してください。
-            </div>
-          ) : (
-            <div className="mt-3 grid gap-3">
-              {isSection ? (
-                <NodeModalSectionForm
-                  isEdit={isEdit}
-                  editingNode={editingNode}
-                  nodes={nodes}
-                  nodeForm={nodeForm}
-                  setNodeForm={setNodeForm}
-                  sectionType={selectedOption.sectionType!}
-                  createClassInstance={createClassInstance}
-                />
-              ) : isVariable ? (
-                <NodeModalVariableForm
-                  variableForm={variableForm}
-                  setVariableForm={setVariableForm}
-                  declaredVariables={declaredVariables}
-                  validateTypeCompatibility={validateTypeCompatibility}
-                />
-              ) : (
-                <NodeModalLogicForm
-                  isStartOrEnd={isStartOrEnd}
-                  isNormal={isNormal}
-                  nodeForm={nodeForm}
-                  setNodeForm={setNodeForm}
-                />
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="mt-5 flex items-center justify-end gap-2">
+    <FloatingEditorPanel
+      title={isEdit ? 'ノード種別を変更' : 'ノード種別を選択'}
+      description={
+        isEdit
+          ? '変更したいノード種別を選んでください。'
+          : '追加したい要素をノードとセクションから選び、必要な情報を入力してください。'
+      }
+      widthClassName="sm:w-[30rem]"
+      footer={
+        <div className="flex items-center justify-end gap-2">
           {isEdit && editingNode ? (
             <button
               type="button"
@@ -182,7 +109,79 @@ export default function NodeModal({
             {isEdit ? '保存する' : '追加する'}
           </button>
         </div>
+      }
+    >
+      <div className="grid gap-3">
+        {NODE_OPTION_GROUPS.map((group) => (
+          <section key={group.id} className="rounded-xl border border-slate-200/80 bg-white p-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-slate-900">{group.label}</div>
+                <p className="mt-1 text-xs text-slate-500">{group.description}</p>
+              </div>
+              <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">
+                {group.options.length}種
+              </span>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              {group.options.map((option) => (
+                <button
+                  key={`${group.id}-${option.kind}-${option.sectionType ?? option.label}`}
+                  type="button"
+                  className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
+                    selectedOption &&
+                    option.kind === selectedOption.kind &&
+                    option.sectionType === selectedOption.sectionType
+                      ? 'border-slate-900 bg-slate-900 text-white'
+                      : 'border-slate-200 text-slate-900 hover:bg-slate-50'
+                  }`}
+                  onClick={() => setNodeModalOption(option)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </section>
+        ))}
       </div>
-    </div>
+
+      <div className="mt-4 border-t border-slate-200/80 pt-4">
+        <div className="text-xs font-semibold text-slate-700">詳細入力</div>
+        {!selectedOption ? (
+          <div className="mt-2 text-xs text-slate-500">
+            種別を選択してから詳細を入力してください。
+          </div>
+        ) : (
+          <div className="mt-3 grid gap-3">
+            {isSection ? (
+              <NodeModalSectionForm
+                isEdit={isEdit}
+                editingNode={editingNode}
+                nodes={nodes}
+                nodeForm={nodeForm}
+                setNodeForm={setNodeForm}
+                sectionType={selectedOption.sectionType!}
+                createClassInstance={createClassInstance}
+              />
+            ) : isVariable ? (
+              <NodeModalVariableForm
+                variableForm={variableForm}
+                setVariableForm={setVariableForm}
+                declaredVariables={declaredVariables}
+                validateTypeCompatibility={validateTypeCompatibility}
+              />
+            ) : (
+              <NodeModalLogicForm
+                isStartOrEnd={isStartOrEnd}
+                isNormal={isNormal}
+                nodeForm={nodeForm}
+                setNodeForm={setNodeForm}
+              />
+            )}
+          </div>
+        )}
+      </div>
+    </FloatingEditorPanel>
   );
 }

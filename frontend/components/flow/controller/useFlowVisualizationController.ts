@@ -12,6 +12,7 @@ import {
   useEdgesState,
   type NodeChange,
   type Node,
+  type Edge,
 } from 'reactflow';
 
 import type {
@@ -86,6 +87,15 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
   const { debugEvent, recordDebugEvent } = useDebugEventState();
   const nextNodeSeq = useRef(1);
   const nextEdgeSeq = useRef(1);
+  const isFloatingEditorOpen = Boolean(
+    pendingConnection ||
+      pendingNodeClientPosition ||
+      pendingMemoClientPosition ||
+      pendingNodeEdit ||
+      pendingMemoEdit ||
+      pendingEdgeEdit ||
+      pendingVariableEdit
+  );
 
   useEffect(() => {
     const normalized = normalizeParallelOffsets(edges);
@@ -175,9 +185,12 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
 
   const onWrapperDoubleClickCapture = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
+      if (isFloatingEditorOpen) {
+        return;
+      }
       openNodeModalAtClient(event);
     },
-    [openNodeModalAtClient]
+    [isFloatingEditorOpen, openNodeModalAtClient]
   );
 
   const openMemoCreateModal = useCallback(() => {
@@ -396,8 +409,8 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     onEdgeUpdate,
     findEdgeNearPointInSection,
     openEdgeEditModal,
-    onEdgeDoubleClick,
-    openEdgeEditModalById,
+    onEdgeDoubleClick: handleEdgeDoubleClick,
+    openEdgeEditModalById: openEdgeEditModalByIdUnsafe,
     deleteEdgeById,
     onEdgeControlChange,
     closeEdgeModal,
@@ -464,6 +477,11 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
 
   const onNodeDoubleClick = useCallback(
     (event: ReactMouseEvent, node: Node<FlowNodeData>) => {
+      if (isFloatingEditorOpen) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       if (node.type === 'memoNode') {
@@ -493,12 +511,35 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     },
     [
       findEdgeNearPointInSection,
+      isFloatingEditorOpen,
       openEdgeEditModal,
       openMemoEditModal,
       openNodeEditModal,
       openVariableEditModal,
       reactFlowInstance,
     ]
+  );
+
+  const onEdgeDoubleClick = useCallback(
+    (event: ReactMouseEvent, edge: Edge<LogicEdgeData>) => {
+      if (isFloatingEditorOpen) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      handleEdgeDoubleClick(event, edge);
+    },
+    [handleEdgeDoubleClick, isFloatingEditorOpen]
+  );
+
+  const openEdgeEditModalById = useCallback(
+    (edgeId: string) => {
+      if (isFloatingEditorOpen) {
+        return;
+      }
+      openEdgeEditModalByIdUnsafe(edgeId);
+    },
+    [isFloatingEditorOpen, openEdgeEditModalByIdUnsafe]
   );
 
   const applyMemoCreation = useCallback(() => {
@@ -589,6 +630,7 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     onConnect,
     onEdgeUpdate,
     onEdgeDoubleClick,
+    isFloatingEditorOpen,
     // debug
     debugEvent,
     // save panel
