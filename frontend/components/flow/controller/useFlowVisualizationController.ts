@@ -5,37 +5,22 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
 import {
   useNodesState,
   useEdgesState,
-  type Connection,
   type Node,
-  type XYPosition,
-  type ReactFlowInstance,
 } from 'reactflow';
 
 import type {
-  EdgeControlType,
-  PythonType,
   MemoNodeData,
   StampNodeData,
-  VariableScope,
   VariableNodeData,
   FlowNodeData,
   LogicEdgeData,
-  NodeFormState,
-  EdgeFormState,
-  NodeOption,
-  StampType,
 } from '../types';
-import {
-  DEFAULT_EDGE_CONTROL,
-  EMPTY_NODE_FORM,
-  EMPTY_EDGE_FORM,
-} from '../constants';
+import { EMPTY_NODE_FORM } from '../constants';
 import { ensureEdgeData, normalizeParallelOffsets } from '../utils';
 import { useFlowPersistence } from '../hooks/useFlowPersistence';
 import { usePythonIntegration } from '../hooks/usePythonIntegration';
@@ -44,6 +29,10 @@ import { useDragDrop } from '../hooks/useDragDrop';
 import { useNodeOperations } from '../hooks/useNodeOperations';
 import { useTemplates } from '../hooks/useTemplates';
 import { buildNodeFormFromNode } from '../forms/buildNodeFormFromNode';
+import { useFlowModalState } from '../state/useFlowModalState';
+import { useCanvasInteractionState } from '../state/useCanvasInteractionState';
+import { useVariableRegistryState } from '../state/useVariableRegistryState';
+import { useDebugEventState } from '../state/useDebugEventState';
 
 type Props = {
   initialFlowId?: string | null;
@@ -52,121 +41,49 @@ type Props = {
 export function useFlowVisualizationController({ initialFlowId }: Props) {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<LogicEdgeData>([]);
-  const [pendingConnection, setPendingConnection] = useState<Connection | null>(null);
-  const [pendingNodeClientPosition, setPendingNodeClientPosition] = useState<XYPosition | null>(null);
-  const [pendingMemoClientPosition, setPendingMemoClientPosition] = useState<XYPosition | null>(null);
-  const [pendingNodeDelete, setPendingNodeDelete] = useState<{ id: string; label: string } | null>(null);
-  const [pendingNodeEdit, setPendingNodeEdit] = useState<{ id: string } | null>(null);
-  const [pendingMemoEdit, setPendingMemoEdit] = useState<{ id: string } | null>(null);
-  const [pendingEdgeEdit, setPendingEdgeEdit] = useState<{ id: string } | null>(null);
-  const [nodeModalOption, setNodeModalOption] = useState<NodeOption | null>(null);
-  const [nodeForm, setNodeForm] = useState<NodeFormState>({ ...EMPTY_NODE_FORM });
-  const [memoText, setMemoText] = useState('');
-  const [variableForm, setVariableForm] = useState<VariableNodeData>({
-    operationType: 'declare',
-    seq: 0,
-    pythonType: 'str',
-    variableName: '',
-    initialValue: '',
-    scope: 'global',
-    note: '',
-  });
-  const [selectedEdgeControl, setSelectedEdgeControl] = useState<EdgeControlType>(DEFAULT_EDGE_CONTROL);
-  const [edgeForm, setEdgeForm] = useState<EdgeFormState>({ ...EMPTY_EDGE_FORM });
-  const [pendingStamp, setPendingStamp] = useState<StampType | null>(null);
-  const [pendingVariableEdit, setPendingVariableEdit] = useState<{ id: string } | null>(null);
-
-  const [declaredVariables, setDeclaredVariables] = useState<Map<string, { type: PythonType; scope: VariableScope; nodeId: string }>>(new Map());
-
-  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
-  const [debugEvent, setDebugEvent] = useState<{
-    type: string;
-    x: number;
-    y: number;
-    count: number;
-  } | null>(null);
-
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
-  const reactFlowInstance = useRef<ReactFlowInstance | null>(null);
+  const {
+    pendingConnection,
+    setPendingConnection,
+    pendingNodeClientPosition,
+    setPendingNodeClientPosition,
+    pendingMemoClientPosition,
+    setPendingMemoClientPosition,
+    pendingNodeDelete,
+    setPendingNodeDelete,
+    pendingNodeEdit,
+    setPendingNodeEdit,
+    pendingMemoEdit,
+    setPendingMemoEdit,
+    pendingEdgeEdit,
+    setPendingEdgeEdit,
+    pendingVariableEdit,
+    setPendingVariableEdit,
+    nodeModalOption,
+    setNodeModalOption,
+    nodeForm,
+    setNodeForm,
+    memoText,
+    setMemoText,
+    variableForm,
+    setVariableForm,
+    selectedEdgeControl,
+    setSelectedEdgeControl,
+    edgeForm,
+    setEdgeForm,
+    pendingStamp,
+    setPendingStamp,
+    isTemplateModalOpen,
+    setIsTemplateModalOpen,
+    resetTransientState,
+    cancelMemoModal,
+    resetVariableEditState,
+    closeTemplateModal,
+  } = useFlowModalState();
+  const { wrapperRef, reactFlowInstance, onInit, consumePaneClickType } = useCanvasInteractionState();
+  const { declaredVariables, validateTypeCompatibility } = useVariableRegistryState(nodes);
+  const { debugEvent, recordDebugEvent } = useDebugEventState();
   const nextNodeSeq = useRef(1);
   const nextEdgeSeq = useRef(1);
-  const debugEventCount = useRef(0);
-  const lastPaneClickAt = useRef<number | null>(null);
-
-  const updateDeclaredVariables = useCallback((currentNodes: Node<FlowNodeData>[]) => {
-    const newDeclaredVariables = new Map<string, { type: PythonType; scope: VariableScope; nodeId: string }>();
-    currentNodes.forEach((node) => {
-      if ((node.type === 'variableNode' || node.type === 'typeNode') && node.data) {
-        const data = node.data as VariableNodeData;
-        if ((data.operationType === 'declare' || !data.operationType) && data.variableName && data.pythonType) {
-          newDeclaredVariables.set(data.variableName, {
-            type: data.pythonType,
-            scope: data.scope || 'global',
-            nodeId: node.id,
-          });
-        }
-      }
-    });
-    setDeclaredVariables(newDeclaredVariables);
-  }, []);
-
-  useEffect(() => {
-    updateDeclaredVariables(nodes);
-  }, [nodes, updateDeclaredVariables]);
-
-  const validateTypeCompatibility = useCallback(
-    (targetVariable: string, newValue: string): { isValid: boolean; message?: string } => {
-      const varInfo = declaredVariables.get(targetVariable);
-      if (!varInfo) {
-        return { isValid: false, message: '変数が見つかりません' };
-      }
-      if (!newValue || newValue.trim() === '') {
-        return { isValid: false, message: '値を入力してください' };
-      }
-      const trimmedValue = newValue.trim();
-      switch (varInfo.type) {
-        case 'int': {
-          const isInt = /^-?\d+$/.test(trimmedValue);
-          return { isValid: isInt, message: isInt ? undefined : '整数を入力してください（例: 123, -456）' };
-        }
-        case 'float': {
-          const isFloat = /^-?\d+(\.\d+)?$/.test(trimmedValue) && !isNaN(Number(trimmedValue));
-          return { isValid: isFloat, message: isFloat ? undefined : '数値を入力してください（例: 3.14, -2.5）' };
-        }
-        case 'bool': {
-          const isBool = ['True', 'False', 'true', 'false'].includes(trimmedValue);
-          return { isValid: isBool, message: isBool ? undefined : 'True または False を入力してください' };
-        }
-        case 'str': {
-          const isStr = /^["'].*["']$/.test(trimmedValue) || trimmedValue.length > 0;
-          return { isValid: isStr, message: isStr ? undefined : '文字列を入力してください（例: "hello", \'world\'）' };
-        }
-        case 'list': {
-          const isList = /^\[.*\]$/.test(trimmedValue);
-          return { isValid: isList, message: isList ? undefined : 'リスト形式で入力してください（例: [1, 2, 3]）' };
-        }
-        case 'dict': {
-          const isDict = /^\{.*\}$/.test(trimmedValue);
-          return { isValid: isDict, message: isDict ? undefined : '辞書形式で入力してください（例: {"key": "value"})' };
-        }
-        case 'tuple': {
-          const isTuple = /^\(.*\)$/.test(trimmedValue);
-          return { isValid: isTuple, message: isTuple ? undefined : 'タプル形式で入力してください（例: (1, 2, 3)）' };
-        }
-        case 'set': {
-          const isSet = /^\{.*\}$/.test(trimmedValue) && !trimmedValue.includes(':');
-          return { isValid: isSet, message: isSet ? undefined : 'セット形式で入力してください（例: {1, 2, 3}）' };
-        }
-        case 'None': {
-          const isNone = trimmedValue === 'None';
-          return { isValid: isNone, message: isNone ? undefined : 'None を入力してください' };
-        }
-        default:
-          return { isValid: true };
-      }
-    },
-    [declaredVariables]
-  );
 
   useEffect(() => {
     const normalized = normalizeParallelOffsets(edges);
@@ -250,7 +167,21 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     setNodeForm({ ...EMPTY_NODE_FORM });
     setPendingMemoClientPosition(center);
     setMemoText('');
-  }, []);
+  }, [
+    reactFlowInstance,
+    setMemoText,
+    setNodeForm,
+    setNodeModalOption,
+    setPendingConnection,
+    setPendingEdgeEdit,
+    setPendingMemoClientPosition,
+    setPendingMemoEdit,
+    setPendingNodeClientPosition,
+    setPendingNodeDelete,
+    setPendingNodeEdit,
+    setPendingStamp,
+    wrapperRef,
+  ]);
 
   const openMemoEditModal = useCallback((node: Node<MemoNodeData>) => {
     setPendingConnection(null);
@@ -264,7 +195,19 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     setNodeForm({ ...EMPTY_NODE_FORM });
     setMemoText(node.data.text ?? '');
     setPendingMemoEdit({ id: node.id });
-  }, []);
+  }, [
+    setMemoText,
+    setNodeForm,
+    setNodeModalOption,
+    setPendingConnection,
+    setPendingEdgeEdit,
+    setPendingMemoClientPosition,
+    setPendingMemoEdit,
+    setPendingNodeClientPosition,
+    setPendingNodeDelete,
+    setPendingNodeEdit,
+    setPendingStamp,
+  ]);
 
   const openVariableEditModal = useCallback((node: Node<VariableNodeData>) => {
     setPendingConnection(null);
@@ -296,7 +239,21 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
       genericParams: node.data.genericParams ?? '',
     });
     setPendingVariableEdit({ id: node.id });
-  }, []);
+  }, [
+    setMemoText,
+    setNodeForm,
+    setNodeModalOption,
+    setPendingConnection,
+    setPendingEdgeEdit,
+    setPendingMemoClientPosition,
+    setPendingMemoEdit,
+    setPendingNodeClientPosition,
+    setPendingNodeDelete,
+    setPendingNodeEdit,
+    setPendingStamp,
+    setPendingVariableEdit,
+    setVariableForm,
+  ]);
 
   const openTemplateModal = useCallback(() => {
     setPendingConnection(null);
@@ -309,11 +266,18 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     setNodeModalOption(null);
     setNodeForm({ ...EMPTY_NODE_FORM });
     setIsTemplateModalOpen(true);
-  }, []);
-
-  const closeTemplateModal = useCallback(() => {
-    setIsTemplateModalOpen(false);
-  }, []);
+  }, [
+    setIsTemplateModalOpen,
+    setNodeForm,
+    setNodeModalOption,
+    setPendingConnection,
+    setPendingEdgeEdit,
+    setPendingMemoEdit,
+    setPendingNodeClientPosition,
+    setPendingNodeDelete,
+    setPendingNodeEdit,
+    setPendingStamp,
+  ]);
 
   const { applyTemplate } = useTemplates({
     wrapperRef,
@@ -326,32 +290,6 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     nextEdgeSeqRef: nextEdgeSeq,
     setIsTemplateModalOpen,
   });
-
-  const cancelMemoModal = useCallback(() => {
-    setPendingMemoClientPosition(null);
-    setPendingMemoEdit(null);
-    setMemoText('');
-  }, []);
-
-  const onInit = useCallback((instance: ReactFlowInstance) => {
-    reactFlowInstance.current = instance;
-  }, []);
-
-  const resetTransientState = useCallback(() => {
-    setPendingConnection(null);
-    setPendingNodeClientPosition(null);
-    setPendingMemoClientPosition(null);
-    setPendingNodeDelete(null);
-    setPendingNodeEdit(null);
-    setPendingMemoEdit(null);
-    setPendingEdgeEdit(null);
-    setNodeModalOption(null);
-    setNodeForm({ ...EMPTY_NODE_FORM });
-    setMemoText('');
-    setSelectedEdgeControl(DEFAULT_EDGE_CONTROL);
-    setEdgeForm({ ...EMPTY_EDGE_FORM });
-    setPendingStamp(null);
-  }, []);
 
   const {
     savedFlows,
@@ -452,16 +390,6 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     setPendingMemoClientPosition,
   });
 
-  const recordDebugEvent = useCallback((type: string, event: ReactMouseEvent) => {
-    debugEventCount.current += 1;
-    setDebugEvent({
-      type,
-      x: Math.round(event.clientX),
-      y: Math.round(event.clientY),
-      count: debugEventCount.current,
-    });
-  }, []);
-
   const onWrapperClickCapture = useCallback(
     (event: ReactMouseEvent<HTMLDivElement>) => {
       recordDebugEvent('wrapper click', event);
@@ -483,18 +411,23 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
         setPendingStamp(null);
         return;
       }
-      const now = Date.now();
-      const lastClick = lastPaneClickAt.current;
-      const isDoubleClick = lastClick !== null && now - lastClick < 320;
-      lastPaneClickAt.current = now;
+      const isDoubleClick = consumePaneClickType();
       recordDebugEvent(isDoubleClick ? 'pane double click' : 'pane click', event);
     },
-    [createStampNode, pendingStamp, recordDebugEvent, setNodes]
+    [
+      consumePaneClickType,
+      createStampNode,
+      pendingStamp,
+      reactFlowInstance,
+      recordDebugEvent,
+      setNodes,
+      setPendingStamp,
+    ]
   );
 
   const cancelConnection = useCallback(() => {
     setPendingConnection(null);
-  }, []);
+  }, [setPendingConnection]);
 
   const onNodeDoubleClick = useCallback(
     (event: ReactMouseEvent, node: Node<FlowNodeData>) => {
@@ -525,7 +458,14 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
       }
       openNodeEditModal(node);
     },
-    [findEdgeNearPointInSection, openEdgeEditModal, openMemoEditModal, openNodeEditModal, openVariableEditModal]
+    [
+      findEdgeNearPointInSection,
+      openEdgeEditModal,
+      openMemoEditModal,
+      openNodeEditModal,
+      openVariableEditModal,
+      reactFlowInstance,
+    ]
   );
 
   const applyMemoCreation = useCallback(() => {
@@ -537,7 +477,15 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     setNodes((currentNodes) => [...currentNodes, memoNode]);
     setPendingMemoClientPosition(null);
     setMemoText('');
-  }, [createMemoNode, memoText, pendingMemoClientPosition, setNodes]);
+  }, [
+    createMemoNode,
+    memoText,
+    pendingMemoClientPosition,
+    reactFlowInstance,
+    setMemoText,
+    setNodes,
+    setPendingMemoClientPosition,
+  ]);
 
   const applyMemoEdit = useCallback(() => {
     if (!pendingMemoEdit) return;
@@ -549,7 +497,7 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     );
     setPendingMemoEdit(null);
     setMemoText('');
-  }, [memoText, pendingMemoEdit, setNodes]);
+  }, [memoText, pendingMemoEdit, setMemoText, setNodes, setPendingMemoEdit]);
 
   const applyVariableEdit = useCallback(() => {
     if (!pendingVariableEdit) return;
@@ -559,30 +507,10 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
         return { ...node, type: 'variableNode', data: { ...variableForm } };
       })
     );
-    setPendingVariableEdit(null);
-    setVariableForm({
-      operationType: 'declare',
-      seq: 0,
-      pythonType: 'str',
-      variableName: '',
-      initialValue: '',
-      scope: 'global',
-      note: '',
-    });
-  }, [pendingVariableEdit, setNodes, variableForm]);
+    resetVariableEditState();
+  }, [pendingVariableEdit, resetVariableEditState, setNodes, variableForm]);
 
-  const cancelVariableEdit = useCallback(() => {
-    setPendingVariableEdit(null);
-    setVariableForm({
-      operationType: 'declare',
-      seq: 0,
-      pythonType: 'str',
-      variableName: '',
-      initialValue: '',
-      scope: 'global',
-      note: '',
-    });
-  }, []);
+  const cancelVariableEdit = resetVariableEditState;
 
   const nodesForRender = useMemo(
     () =>
