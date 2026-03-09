@@ -3,24 +3,29 @@ import type { Node } from 'reactflow';
 
 import type {
   FlowNodeData,
-  PythonType,
-  VariableScope,
 } from '../types';
 import {
+  type DeclaredVariableInfo,
   collectDeclaredVariables,
   validateVariableTypeCompatibility,
 } from '../services/flowInteractionService';
 
-type DeclaredVariableInfo = {
-  type: PythonType;
-  scope: VariableScope;
-  nodeId: string;
+export type DeclaredVariableEntry = DeclaredVariableInfo & {
+  name: string;
 };
 
 export function useVariableRegistryState(nodes: Node<FlowNodeData>[]) {
   const declaredVariables = useMemo<Map<string, DeclaredVariableInfo>>(
     () => collectDeclaredVariables(nodes),
     [nodes]
+  );
+  const declaredVariableEntries = useMemo<DeclaredVariableEntry[]>(
+    () =>
+      Array.from(declaredVariables.entries()).map(([name, info]) => ({
+        name,
+        ...info,
+      })),
+    [declaredVariables]
   );
 
   const validateTypeCompatibility = useCallback(
@@ -31,6 +36,7 @@ export function useVariableRegistryState(nodes: Node<FlowNodeData>[]) {
 
   return {
     declaredVariables,
+    declaredVariableEntries,
     validateTypeCompatibility,
   };
 }

@@ -7,6 +7,7 @@ import type {
   VariableOperationType,
   VariableScope,
 } from '../types';
+import type { DeclaredVariableInfo } from '../services/flowInteractionService';
 import {
   FieldLabel,
   fieldClassName,
@@ -17,7 +18,7 @@ import {
 type Props = {
   variableForm: VariableNodeData;
   setVariableForm: Dispatch<SetStateAction<VariableNodeData>>;
-  declaredVariables: Map<string, { type: PythonType; scope: VariableScope; nodeId: string }>;
+  declaredVariables: Map<string, DeclaredVariableInfo>;
   validateTypeCompatibility: (
     targetVariable: string,
     newValue: string
