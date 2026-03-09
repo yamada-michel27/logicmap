@@ -10,6 +10,7 @@ import {
 import {
   useNodesState,
   useEdgesState,
+  type NodeChange,
   type Node,
 } from 'reactflow';
 
@@ -39,7 +40,7 @@ type Props = {
 };
 
 export function useFlowVisualizationController({ initialFlowId }: Props) {
-  const [nodes, setNodes, onNodesChange] = useNodesState<FlowNodeData>([]);
+  const [nodes, setNodes, applyNodesChange] = useNodesState<FlowNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<LogicEdgeData>([]);
   const {
     pendingConnection,
@@ -96,6 +97,37 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     reactFlowInstance,
     setNodes,
   });
+
+  const onNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      applyNodesChange(changes);
+
+      const parentSectionIds = new Set<string>();
+      changes.forEach((change) => {
+        if (change.type !== 'dimensions' || change.resizing !== false) {
+          return;
+        }
+
+        const resizedNode = nodes.find((node) => node.id === change.id);
+        if (!resizedNode?.parentNode) {
+          return;
+        }
+
+        parentSectionIds.add(resizedNode.parentNode);
+      });
+
+      if (parentSectionIds.size === 0) {
+        return;
+      }
+
+      setTimeout(() => {
+        parentSectionIds.forEach((parentSectionId) => {
+          updateParentSectionSize(parentSectionId);
+        });
+      }, 0);
+    },
+    [applyNodesChange, nodes, updateParentSectionSize]
+  );
 
   const {
     createLogicNode,
