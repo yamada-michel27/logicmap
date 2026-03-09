@@ -204,6 +204,12 @@ variable "backend_container_secrets" {
   default = []
 }
 
+variable "backend_secret_arns" {
+  description = "実行ロールに GetSecretValue を許可する追加の Secrets Manager ARN リスト"
+  type        = list(string)
+  default     = []
+}
+
 variable "db_name" {
   description = "RDSのDB名"
   type        = string

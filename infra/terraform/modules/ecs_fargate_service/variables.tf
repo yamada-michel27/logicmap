@@ -71,6 +71,12 @@ variable "secrets" {
   default = []
 }
 
+variable "secret_arns" {
+  type        = list(string)
+  default     = []
+  description = "実行ロールに GetSecretValue を許可する Secrets Manager シークレットの ARN リスト"
+}
+
 variable "task_role_arn" {
   type    = string
   default = null
