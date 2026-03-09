@@ -293,6 +293,8 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
           pendingVariableEdit={pendingVariableEdit}
           variableForm={variableForm}
           setVariableForm={setVariableForm}
+          declaredVariables={declaredVariables}
+          validateTypeCompatibility={validateTypeCompatibility}
           cancelVariableEdit={cancelVariableEdit}
           applyVariableEdit={applyVariableEdit}
         />

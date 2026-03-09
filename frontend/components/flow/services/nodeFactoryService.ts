@@ -27,6 +27,7 @@ import type {
   VariableScope,
 } from '../types';
 import { buildCatchValue, normalizeText } from '../utils';
+import { sanitizeVariableData } from './flowInteractionService';
 
 export type CreateLogicNodeParams = {
   kind: NodeKind;
@@ -216,32 +217,34 @@ export function buildVariableNodeParams(
   variableForm: VariableNodeData,
   position: XYPosition
 ): CreateVariableNodeParams {
+  const sanitized = sanitizeVariableData(variableForm);
+
   return {
-    operationType: variableForm.operationType,
+    operationType: sanitized.operationType,
     position,
-    pythonType: variableForm.pythonType,
-    variableName: variableForm.variableName
-      ? normalizeText(variableForm.variableName)
+    pythonType: sanitized.pythonType,
+    variableName: sanitized.variableName
+      ? normalizeText(sanitized.variableName)
       : undefined,
-    initialValue: variableForm.initialValue
-      ? normalizeText(variableForm.initialValue)
+    initialValue: sanitized.initialValue
+      ? normalizeText(sanitized.initialValue)
       : undefined,
-    scope: variableForm.scope,
-    targetVariable: variableForm.targetVariable
-      ? normalizeText(variableForm.targetVariable)
+    scope: sanitized.scope,
+    targetVariable: sanitized.targetVariable
+      ? normalizeText(sanitized.targetVariable)
       : undefined,
-    newValue: variableForm.newValue ? normalizeText(variableForm.newValue) : undefined,
-    elementType: variableForm.elementType ? normalizeText(variableForm.elementType) : undefined,
-    keyType: variableForm.keyType ? normalizeText(variableForm.keyType) : undefined,
-    valueType: variableForm.valueType ? normalizeText(variableForm.valueType) : undefined,
-    innerType: variableForm.innerType ? normalizeText(variableForm.innerType) : undefined,
-    unionTypes: variableForm.unionTypes?.filter((value) => value.trim()).length
-      ? variableForm.unionTypes.filter((value) => value.trim())
+    newValue: sanitized.newValue ? normalizeText(sanitized.newValue) : undefined,
+    elementType: sanitized.elementType ? normalizeText(sanitized.elementType) : undefined,
+    keyType: sanitized.keyType ? normalizeText(sanitized.keyType) : undefined,
+    valueType: sanitized.valueType ? normalizeText(sanitized.valueType) : undefined,
+    innerType: sanitized.innerType ? normalizeText(sanitized.innerType) : undefined,
+    unionTypes: sanitized.unionTypes?.filter((value) => value.trim()).length
+      ? sanitized.unionTypes.filter((value) => value.trim())
       : undefined,
-    genericParams: variableForm.genericParams
-      ? normalizeText(variableForm.genericParams)
+    genericParams: sanitized.genericParams
+      ? normalizeText(sanitized.genericParams)
       : undefined,
-    note: variableForm.note ? normalizeText(variableForm.note) : undefined,
+    note: sanitized.note ? normalizeText(sanitized.note) : undefined,
   };
 }
 

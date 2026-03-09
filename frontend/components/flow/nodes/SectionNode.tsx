@@ -147,6 +147,12 @@ export function SectionNode({ id, data, selected }: NodeProps<SectionNodeData>) 
       details.push({ label: '条件式', value: loopCondition });
     }
   }
+  if (data.sectionType === 'if' || data.sectionType === 'elif') {
+    const conditionValue = data.label?.trim() ?? '';
+    if (conditionValue.length > 0) {
+      details.push({ label: '条件式', value: conditionValue });
+    }
+  }
   if (data.sectionType === 'catch') {
     const exceptionValue = data.catchException?.trim() ?? '';
     if (exceptionValue.length > 0) {
@@ -187,7 +193,10 @@ export function SectionNode({ id, data, selected }: NodeProps<SectionNodeData>) 
       <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: style.color, pointerEvents: 'auto' }}>
         {style.label}
       </div>
-      {data.label && data.label.trim().length > 0 ? (
+      {data.label &&
+      data.label.trim().length > 0 &&
+      data.sectionType !== 'if' &&
+      data.sectionType !== 'elif' ? (
         <div className="mt-1 text-sm font-semibold text-gray-900 whitespace-pre-wrap" style={{ pointerEvents: 'auto' }}>
           {data.label}
         </div>

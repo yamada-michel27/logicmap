@@ -48,26 +48,43 @@ export function NodeModalSectionForm({
   const isInterface = sectionType === 'interface';
   const isMain = sectionType === 'main';
   const isLoop = sectionType === 'while' || sectionType === 'for';
+  const isConditional = sectionType === 'if' || sectionType === 'elif';
   const isCatch = sectionType === 'catch';
+  const isTryOrElse = sectionType === 'try' || sectionType === 'else';
   const allowValidations = isFunction || isClass || isInterface;
-  const loopPlaceholder = sectionType === 'for' ? '例: for item in items' : '例: i < 10';
+  const loopLabel = sectionType === 'for' ? '反復式' : '継続条件';
+  const loopPlaceholder = sectionType === 'for' ? '例: item in items' : '例: i < 10';
+  const nameFieldConfig = isFunction
+    ? { label: '関数名', placeholder: '例: fetchUser' }
+    : isClass
+    ? { label: 'クラス名', placeholder: '例: UserService' }
+    : isInterface
+    ? { label: 'インターフェース名', placeholder: '例: UserRepository' }
+    : isMain
+    ? { label: 'メイン処理名', placeholder: '例: MainProcess' }
+    : isConditional
+    ? { label: '条件式', placeholder: sectionType === 'if' ? '例: user != null' : '例: retryCount < 3' }
+    : null;
+  const notePlaceholder = isFunction || isClass || isInterface
+    ? '目的や制約、利用時の補足を入力'
+    : isLoop
+    ? 'ループの意図や終了条件の補足を入力'
+    : isConditional || isTryOrElse
+    ? '分岐や例外処理の補足を入力'
+    : '補足コメントを入力';
 
   return (
     <>
-      <TextInputField
-        label={isMain || isCatch ? '表示名' : '表示名（関数名/クラス名）'}
-        value={nodeForm.label}
-        onChange={(value) =>
-          setNodeForm((current) => ({ ...current, label: value }))
-        }
-        placeholder={
-          isMain
-            ? '例: MainProcess'
-            : isCatch
-            ? '例: ErrorHandler'
-            : '例: fetchUser / UserService'
-        }
-      />
+      {nameFieldConfig ? (
+        <TextInputField
+          label={nameFieldConfig.label}
+          value={nodeForm.label}
+          onChange={(value) =>
+            setNodeForm((current) => ({ ...current, label: value }))
+          }
+          placeholder={nameFieldConfig.placeholder}
+        />
+      ) : null}
 
       {editingSectionNode ? (
         <div>
@@ -204,7 +221,7 @@ export function NodeModalSectionForm({
 
       {isLoop ? (
         <TextInputField
-          label="条件式"
+          label={loopLabel}
           value={nodeForm.loopCondition}
           onChange={(value) =>
             setNodeForm((current) => ({ ...current, loopCondition: value }))
@@ -262,7 +279,7 @@ export function NodeModalSectionForm({
           onChange={(value) =>
             setNodeForm((current) => ({ ...current, note: value }))
           }
-          placeholder="補足コメントを入力"
+          placeholder={notePlaceholder}
         />
       )}
 
