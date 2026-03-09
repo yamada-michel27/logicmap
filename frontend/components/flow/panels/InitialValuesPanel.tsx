@@ -17,11 +17,11 @@ export function InitialValuesPanel({ variables }: Props) {
       className="pointer-events-auto"
       style={{
         top: 184,
+        bottom: 12,
         right: 12,
-        maxHeight: 'calc(100% - 196px)',
       }}
     >
-      <aside className="flex h-full w-[min(20rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-sky-100/80 bg-white/92 shadow-xl backdrop-blur-xl">
+      <aside className="flex h-full min-h-0 w-[min(20rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-sky-100/80 bg-white/92 shadow-xl backdrop-blur-xl">
         <div className="border-b border-sky-100 bg-gradient-to-r from-sky-50 via-white to-cyan-50 px-4 py-4">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -46,7 +46,7 @@ export function InitialValuesPanel({ variables }: Props) {
             変数ノードを追加すると、ここに初期値が表示されます。
           </div>
         ) : (
-          <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
+          <div className="flex-1 min-h-0 space-y-3 overflow-y-auto px-3 py-3">
             {variables.map((variable) => {
               const hasInitialValue = variable.initialValue.trim().length > 0;
 
