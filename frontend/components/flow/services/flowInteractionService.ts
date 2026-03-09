@@ -33,6 +33,40 @@ export function createDefaultVariableForm(): VariableNodeData {
   return { ...DEFAULT_VARIABLE_FORM };
 }
 
+export function sanitizeVariableData(
+  form: VariableNodeData,
+  declaredVariables?: Map<string, DeclaredVariableInfo>
+): VariableNodeData {
+  const isDeclareMode = form.operationType === 'declare';
+  const resolvedAssignType =
+    !isDeclareMode && form.targetVariable
+      ? declaredVariables?.get(form.targetVariable)?.type ?? form.pythonType
+      : undefined;
+
+  return {
+    operationType: form.operationType,
+    seq: form.seq,
+    pythonType: isDeclareMode ? form.pythonType ?? 'str' : resolvedAssignType,
+    variableName: isDeclareMode ? form.variableName ?? '' : '',
+    initialValue: isDeclareMode ? form.initialValue ?? '' : '',
+    scope: isDeclareMode ? form.scope ?? 'global' : undefined,
+    targetVariable: isDeclareMode ? '' : form.targetVariable ?? '',
+    newValue: isDeclareMode ? '' : form.newValue ?? '',
+    elementType:
+      isDeclareMode &&
+      (form.pythonType === 'list' || form.pythonType === 'tuple' || form.pythonType === 'set')
+        ? form.elementType ?? ''
+        : '',
+    keyType: isDeclareMode && form.pythonType === 'dict' ? form.keyType ?? '' : '',
+    valueType: isDeclareMode && form.pythonType === 'dict' ? form.valueType ?? '' : '',
+    innerType: isDeclareMode && form.pythonType === 'Optional' ? form.innerType ?? '' : '',
+    unionTypes:
+      isDeclareMode && form.pythonType === 'Union' ? form.unionTypes ?? [] : [],
+    genericParams: isDeclareMode ? form.genericParams ?? '' : '',
+    note: form.note ?? '',
+  };
+}
+
 export function collectDeclaredVariables(
   nodes: Node<FlowNodeData>[]
 ): Map<string, DeclaredVariableInfo> {

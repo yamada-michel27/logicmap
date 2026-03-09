@@ -25,12 +25,74 @@ type Props = {
   ) => { isValid: boolean; message?: string };
 };
 
+function getVariableNamePlaceholder(pythonType?: PythonType) {
+  switch (pythonType) {
+    case 'bool':
+      return '例: is_active, has_access';
+    case 'list':
+    case 'tuple':
+    case 'set':
+      return '例: items, user_ids, tags';
+    case 'dict':
+      return '例: user_map, config';
+    default:
+      return '例: user_name, count, total';
+  }
+}
+
+function getValuePlaceholder(pythonType?: PythonType) {
+  switch (pythonType) {
+    case 'str':
+      return '例: "hello"';
+    case 'int':
+      return '例: 0';
+    case 'float':
+      return '例: 3.14';
+    case 'bool':
+      return '例: True';
+    case 'list':
+      return '例: ["apple", "banana"]';
+    case 'tuple':
+      return '例: (1, 2)';
+    case 'dict':
+      return '例: {"name": "Taro"}';
+    case 'set':
+      return '例: {"admin", "staff"}';
+    case 'None':
+      return '例: None';
+    case 'Optional':
+      return '例: None / "guest"';
+    case 'Union':
+      return '例: "guest", 0, None';
+    case 'Any':
+      return '例: 任意の値';
+    default:
+      return '例: value';
+  }
+}
+
+function getTypeParameterPlaceholder(pythonType?: PythonType) {
+  switch (pythonType) {
+    case 'list':
+      return '例: str, User';
+    case 'tuple':
+      return '例: int, str';
+    case 'set':
+      return '例: str, UUID';
+    default:
+      return '例: str';
+  }
+}
+
 export function NodeModalVariableForm({
   variableForm,
   setVariableForm,
   declaredVariables,
   validateTypeCompatibility,
 }: Props) {
+  const assignTargetType = variableForm.targetVariable
+    ? declaredVariables.get(variableForm.targetVariable)?.type
+    : undefined;
   const validation =
     variableForm.operationType === 'assign' &&
     variableForm.targetVariable &&
@@ -55,6 +117,10 @@ export function NodeModalVariableForm({
                 setVariableForm((current) => ({
                   ...current,
                   operationType: event.target.value as VariableOperationType,
+                  pythonType:
+                    event.target.value === 'declare'
+                      ? current.pythonType || 'str'
+                      : current.pythonType,
                 }))
               }
               className="mr-2"
@@ -70,6 +136,8 @@ export function NodeModalVariableForm({
                 setVariableForm((current) => ({
                   ...current,
                   operationType: event.target.value as VariableOperationType,
+                  pythonType:
+                    event.target.value === 'assign' ? assignTargetType ?? undefined : current.pythonType,
                 }))
               }
               className="mr-2"
@@ -106,7 +174,7 @@ export function NodeModalVariableForm({
             onChange={(value) =>
               setVariableForm((current) => ({ ...current, variableName: value }))
             }
-            placeholder="例: user_name, count, items"
+            placeholder={getVariableNamePlaceholder(variableForm.pythonType)}
           />
           <TextInputField
             label="初期値"
@@ -114,18 +182,66 @@ export function NodeModalVariableForm({
             onChange={(value) =>
               setVariableForm((current) => ({ ...current, initialValue: value }))
             }
-            placeholder={
-              variableForm.pythonType === 'str'
-                ? '例: "hello"'
-                : variableForm.pythonType === 'int'
-                ? '例: 0'
-                : variableForm.pythonType === 'list'
-                ? '例: []'
-                : variableForm.pythonType === 'dict'
-                ? '例: {}'
-                : '例: None'
-            }
+            placeholder={getValuePlaceholder(variableForm.pythonType)}
           />
+          {variableForm.pythonType === 'list' ||
+          variableForm.pythonType === 'tuple' ||
+          variableForm.pythonType === 'set' ? (
+            <TextInputField
+              label="要素型"
+              value={variableForm.elementType || ''}
+              onChange={(value) =>
+                setVariableForm((current) => ({ ...current, elementType: value }))
+              }
+              placeholder={getTypeParameterPlaceholder(variableForm.pythonType)}
+            />
+          ) : null}
+          {variableForm.pythonType === 'dict' ? (
+            <>
+              <TextInputField
+                label="キー型"
+                value={variableForm.keyType || ''}
+                onChange={(value) =>
+                  setVariableForm((current) => ({ ...current, keyType: value }))
+                }
+                placeholder="例: str, int"
+              />
+              <TextInputField
+                label="値型"
+                value={variableForm.valueType || ''}
+                onChange={(value) =>
+                  setVariableForm((current) => ({ ...current, valueType: value }))
+                }
+                placeholder="例: User, list[str]"
+              />
+            </>
+          ) : null}
+          {variableForm.pythonType === 'Optional' ? (
+            <TextInputField
+              label="内部型"
+              value={variableForm.innerType || ''}
+              onChange={(value) =>
+                setVariableForm((current) => ({ ...current, innerType: value }))
+              }
+              placeholder="例: str, User"
+            />
+          ) : null}
+          {variableForm.pythonType === 'Union' ? (
+            <TextInputField
+              label="候補型"
+              value={variableForm.unionTypes?.join(', ') || ''}
+              onChange={(value) =>
+                setVariableForm((current) => ({
+                  ...current,
+                  unionTypes: value
+                    .split(',')
+                    .map((type) => type.trim())
+                    .filter(Boolean),
+                }))
+              }
+              placeholder="例: str, int, None"
+            />
+          ) : null}
           <div>
             <FieldLabel>スコープ</FieldLabel>
             <select
@@ -154,6 +270,8 @@ export function NodeModalVariableForm({
                 setVariableForm((current) => ({
                   ...current,
                   targetVariable: event.target.value,
+                  pythonType:
+                    declaredVariables.get(event.target.value)?.type ?? current.pythonType,
                 }))
               }
             >
@@ -183,8 +301,8 @@ export function NodeModalVariableForm({
                 }))
               }
               placeholder={
-                variableForm.targetVariable
-                  ? `${declaredVariables.get(variableForm.targetVariable)?.type}型の値を入力`
+                assignTargetType
+                  ? `${assignTargetType}型の値を入力（${getValuePlaceholder(assignTargetType)}）`
                   : '新しい値を入力'
               }
             />
@@ -208,7 +326,11 @@ export function NodeModalVariableForm({
         onChange={(value) =>
           setVariableForm((current) => ({ ...current, note: value }))
         }
-        placeholder="変数の使用目的や注意点を入力"
+        placeholder={
+          variableForm.operationType === 'declare'
+            ? 'この変数の用途や制約を入力'
+            : '変更理由や更新条件を入力'
+        }
       />
     </>
   );

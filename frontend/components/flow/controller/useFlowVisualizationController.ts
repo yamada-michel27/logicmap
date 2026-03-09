@@ -35,6 +35,7 @@ import { useFlowModalState } from '../state/useFlowModalState';
 import { useCanvasInteractionState } from '../state/useCanvasInteractionState';
 import { useVariableRegistryState } from '../state/useVariableRegistryState';
 import { useDebugEventState } from '../state/useDebugEventState';
+import { sanitizeVariableData } from '../services/flowInteractionService';
 
 type Props = {
   initialFlowId?: string | null;
@@ -578,11 +579,21 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     setNodes((currentNodes) =>
       currentNodes.map((node) => {
         if (node.id !== pendingVariableEdit.id || (node.type !== 'variableNode' && node.type !== 'typeNode')) return node;
-        return { ...node, type: 'variableNode', data: { ...variableForm } };
+        return {
+          ...node,
+          type: 'variableNode',
+          data: sanitizeVariableData(variableForm, declaredVariables),
+        };
       })
     );
     resetVariableEditState();
-  }, [pendingVariableEdit, resetVariableEditState, setNodes, variableForm]);
+  }, [
+    declaredVariables,
+    pendingVariableEdit,
+    resetVariableEditState,
+    setNodes,
+    variableForm,
+  ]);
 
   const cancelVariableEdit = resetVariableEditState;
 
