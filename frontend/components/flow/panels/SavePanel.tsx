@@ -8,10 +8,6 @@ export function SavePanel() {
     isSavingFlow,
     saveCurrentFlow,
     saveError,
-    savedFlows,
-    isLoadingFlows,
-    restoreSavedFlow,
-    deleteSavedFlow,
   } = savePanel;
 
   return (
@@ -39,37 +35,6 @@ export function SavePanel() {
       {saveError ? (
         <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700 shadow-sm">
           {saveError}
-        </div>
-      ) : null}
-      {savedFlows.length > 0 ? (
-        <div className="flex flex-wrap gap-2 rounded-md border border-gray-200 bg-white/80 px-3 py-2 text-xs text-gray-900 shadow-sm">
-          {savedFlows.map((flow) => (
-            <div
-              key={flow.id}
-              className="flex items-center overflow-hidden rounded-full border border-gray-200 bg-white"
-            >
-              <button
-                type="button"
-                className="max-w-[180px] truncate px-3 py-1 text-xs font-semibold text-gray-800 hover:bg-gray-50"
-                onClick={() => restoreSavedFlow(flow.id)}
-                title={flow.name}
-              >
-                {flow.name}
-              </button>
-              <button
-                type="button"
-                className="border-l border-gray-200 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50"
-                onClick={() => deleteSavedFlow(flow.id)}
-                aria-label="保存データを削除"
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : isLoadingFlows ? (
-        <div className="rounded-md border border-gray-200 bg-white/80 px-3 py-2 text-xs text-gray-500 shadow-sm">
-          保存データを読み込み中...
         </div>
       ) : null}
     </div>
