@@ -8,7 +8,6 @@ export function ActionPanel() {
     currentFlowId,
     currentFlowName,
     updateFlow,
-    openTemplateModal,
     createNewCanvas,
     openExportModal,
     openImportModal,
@@ -37,13 +36,6 @@ export function ActionPanel() {
         </div>
       )}
       <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-white/90 px-3 py-2 text-xs font-semibold text-gray-900 shadow-sm">
-        <button
-          type="button"
-          className="rounded-md border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100"
-          onClick={openTemplateModal}
-        >
-          📐 テンプレート
-        </button>
         <button
           type="button"
           className="rounded-md border border-purple-200 bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700 hover:bg-purple-100"

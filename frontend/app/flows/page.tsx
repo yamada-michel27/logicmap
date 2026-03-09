@@ -50,7 +50,6 @@ export default function FlowsPage() {
   const [flows, setFlows] = useState<SavedFlowSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [deletingFlowId, setDeletingFlowId] = useState<string | null>(null);
   const [savingFlowId, setSavingFlowId] = useState<string | null>(null);
   const [editingFlowId, setEditingFlowId] = useState<string | null>(null);
   const [editState, setEditState] = useState<FlowEditState>(EMPTY_EDIT_STATE);
@@ -165,34 +164,6 @@ export default function FlowsPage() {
     [editState, stopEditing]
   );
 
-  const handleDeleteFlow = useCallback(
-    async (flowId: string) => {
-      const targetFlow = flows.find((flow) => flow.id === flowId);
-      const flowName = targetFlow?.name ?? 'このフロー';
-      const shouldDelete = window.confirm(`「${flowName}」を削除します。よろしいですか？`);
-
-      if (!shouldDelete) {
-        return;
-      }
-
-      setDeletingFlowId(flowId);
-      setError(null);
-
-      try {
-        await apiFetch<null>(`/flows/${flowId}`, { method: 'DELETE' });
-        setFlows((currentFlows) => currentFlows.filter((flow) => flow.id !== flowId));
-        if (editingFlowId === flowId) {
-          stopEditing();
-        }
-      } catch {
-        setError('フローの削除に失敗しました');
-      } finally {
-        setDeletingFlowId(null);
-      }
-    },
-    [editingFlowId, flows, stopEditing]
-  );
-
   const handleBackToEditor = () => {
     router.push('/');
   };
@@ -260,7 +231,6 @@ export default function FlowsPage() {
                   {flows.map((flow) => {
                     const isEditing = editingFlowId === flow.id;
                     const isSaving = savingFlowId === flow.id;
-                    const isDeleting = deletingFlowId === flow.id;
                     const savedLinks = Array.isArray(flow.links) ? flow.links : [];
 
                     return (
@@ -426,7 +396,7 @@ export default function FlowsPage() {
                               </button>
                             </>
                           )}
-                          <button
+                          {/* <button
                             type="button"
                             onClick={() => void handleDeleteFlow(flow.id)}
                             disabled={isDeleting || isSaving}
@@ -437,7 +407,7 @@ export default function FlowsPage() {
                             }`}
                           >
                             {isDeleting ? '削除中...' : '削除'}
-                          </button>
+                          </button> */}
                         </div>
                       </div>
                     );

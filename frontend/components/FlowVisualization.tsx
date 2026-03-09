@@ -19,7 +19,6 @@ import NodeModal from './flow/modals/NodeModal';
 import { nodeTypes } from './flow/nodes';
 import { edgeTypes } from './flow/edges';
 import { NodeDeleteOverlay } from './flow/overlays/NodeDeleteOverlay';
-import { TemplateModalOverlay } from './flow/overlays/TemplateModalOverlay';
 import { ExportModalOverlay } from './flow/overlays/ExportModalOverlay';
 import { PythonModalOverlay } from './flow/overlays/PythonModalOverlay';
 import { PythonImportModalOverlay } from './flow/overlays/PythonImportModalOverlay';
@@ -62,7 +61,6 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     currentFlowId,
     currentFlowName,
     updateFlow,
-    openTemplateModal,
     createNewCanvas,
     openExportModal,
     openImportModal,
@@ -114,9 +112,6 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
     openNodeDeleteModal,
     pendingNodeDelete,
     setPendingNodeDelete,
-    isTemplateModalOpen,
-    applyTemplate,
-    closeTemplateModal,
     isExportModalOpen,
     exportedText,
     isCopied,
@@ -158,7 +153,6 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
       currentFlowId,
       currentFlowName,
       updateFlow,
-      openTemplateModal,
       createNewCanvas,
       openExportModal,
       openImportModal,
@@ -176,11 +170,6 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
       pendingNodeDelete,
       setPendingNodeDelete,
       deleteNodeById,
-    },
-    templateModalOverlay: {
-      isTemplateModalOpen,
-      applyTemplate,
-      closeTemplateModal,
     },
     exportModalOverlay: {
       isExportModalOpen,
@@ -310,7 +299,6 @@ export default function FlowVisualization({ initialFlowId }: FlowVisualizationPr
           openNodeDeleteModal={openNodeDeleteModal}
         />
         <NodeDeleteOverlay />
-        <TemplateModalOverlay />
         <ExportModalOverlay />
         <PythonModalOverlay />
         <PythonImportModalOverlay />

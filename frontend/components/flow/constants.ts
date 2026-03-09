@@ -24,6 +24,7 @@ export const CONTROL_STYLE: Record<
   class: { label: 'class', color: '#1d4ed8', nodeBg: '#eff6ff' },
   interface: { label: 'interface', color: '#0ea5e9', nodeBg: '#e0f2fe' },
   main: { label: 'main', color: '#f59e0b', nodeBg: '#fef3c7' },
+  process: { label: 'process', color: '#475569', nodeBg: '#e2e8f0' },
 };
 
 export const SECTION_MIN_WIDTH = 240;
@@ -82,6 +83,7 @@ export const NODE_OPTIONS: NodeOption[] = [
   { label: CONTROL_STYLE.class.label, kind: 'section', sectionType: 'class' },
   { label: CONTROL_STYLE.interface.label, kind: 'section', sectionType: 'interface' },
   { label: CONTROL_STYLE.main.label, kind: 'section', sectionType: 'main' },
+  { label: CONTROL_STYLE.process.label, kind: 'section', sectionType: 'process' },
   { label: CONTROL_STYLE.while.label, kind: 'section', sectionType: 'while' },
   { label: CONTROL_STYLE.for.label, kind: 'section', sectionType: 'for' },
   { label: CONTROL_STYLE.if.label, kind: 'section', sectionType: 'if' },

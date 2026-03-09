@@ -232,6 +232,7 @@ export function getAvailableInnerElements(sectionType: SectionType): { type: 'se
 
   if (sectionType === 'function') {
     available.push(
+      { type: 'section' as const, sectionType: 'process' as const, label: 'process' },
       { type: 'section' as const, sectionType: 'for' as const, label: 'for文' },
       { type: 'section' as const, sectionType: 'while' as const, label: 'while文' },
       { type: 'section' as const, sectionType: 'if' as const, label: 'if文' },
@@ -242,6 +243,17 @@ export function getAvailableInnerElements(sectionType: SectionType): { type: 'se
     );
   } else if (sectionType === 'class') {
     available.push(
+      { type: 'section' as const, sectionType: 'process' as const, label: 'process' },
+      { type: 'section' as const, sectionType: 'for' as const, label: 'for文' },
+      { type: 'section' as const, sectionType: 'while' as const, label: 'while文' },
+      { type: 'section' as const, sectionType: 'if' as const, label: 'if文' },
+      { type: 'section' as const, sectionType: 'elif' as const, label: 'elif文' },
+      { type: 'section' as const, sectionType: 'else' as const, label: 'else文' },
+      { type: 'node' as const, nodeKind: 'normal' as const, label: '処理ノード' }
+    );
+  } else if (sectionType === 'process') {
+    available.push(
+      { type: 'section' as const, sectionType: 'process' as const, label: 'process' },
       { type: 'section' as const, sectionType: 'for' as const, label: 'for文' },
       { type: 'section' as const, sectionType: 'while' as const, label: 'while文' },
       { type: 'section' as const, sectionType: 'if' as const, label: 'if文' },
@@ -251,6 +263,7 @@ export function getAvailableInnerElements(sectionType: SectionType): { type: 'se
     );
   } else if (sectionType === 'for' || sectionType === 'while') {
     available.push(
+      { type: 'section' as const, sectionType: 'process' as const, label: 'process' },
       { type: 'section' as const, sectionType: 'if' as const, label: 'if文' },
       { type: 'section' as const, sectionType: 'elif' as const, label: 'elif文' },
       { type: 'section' as const, sectionType: 'else' as const, label: 'else文' },
@@ -260,6 +273,7 @@ export function getAvailableInnerElements(sectionType: SectionType): { type: 'se
     );
   } else if (sectionType === 'if' || sectionType === 'elif' || sectionType === 'else') {
     available.push(
+      { type: 'section' as const, sectionType: 'process' as const, label: 'process' },
       { type: 'section' as const, sectionType: 'for' as const, label: 'for文' },
       { type: 'section' as const, sectionType: 'while' as const, label: 'while文' },
       { type: 'section' as const, sectionType: 'if' as const, label: 'if文' },

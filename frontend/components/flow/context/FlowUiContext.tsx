@@ -15,7 +15,6 @@ type FlowUiController = Pick<
   | 'currentFlowId'
   | 'currentFlowName'
   | 'updateFlow'
-  | 'openTemplateModal'
   | 'createNewCanvas'
   | 'openExportModal'
   | 'openImportModal'
@@ -28,9 +27,6 @@ type FlowUiController = Pick<
   | 'pendingNodeDelete'
   | 'setPendingNodeDelete'
   | 'deleteNodeById'
-  | 'isTemplateModalOpen'
-  | 'applyTemplate'
-  | 'closeTemplateModal'
   | 'isExportModalOpen'
   | 'exportedText'
   | 'isCopied'
@@ -74,7 +70,6 @@ type FlowUiContextValue = {
     | 'currentFlowId'
     | 'currentFlowName'
     | 'updateFlow'
-    | 'openTemplateModal'
     | 'createNewCanvas'
     | 'openExportModal'
     | 'openImportModal'
@@ -87,7 +82,6 @@ type FlowUiContextValue = {
   >;
   debugPanel: Pick<FlowUiController, 'debugEvent'>;
   nodeDeleteOverlay: Pick<FlowUiController, 'pendingNodeDelete' | 'setPendingNodeDelete' | 'deleteNodeById'>;
-  templateModalOverlay: Pick<FlowUiController, 'isTemplateModalOpen' | 'applyTemplate' | 'closeTemplateModal'>;
   exportModalOverlay: Pick<
     FlowUiController,
     | 'isExportModalOpen'

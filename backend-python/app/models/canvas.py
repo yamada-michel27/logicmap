@@ -20,7 +20,7 @@ class ClassMethod(BaseModel):
 
 # ノード種類
 NodeKind = Literal['start', 'end', 'normal', 'break', 'continue', 'return']
-SectionType = Literal['function', 'class', 'interface', 'main', 'try', 'catch', 'while', 'for', 'if', 'elif', 'else']
+SectionType = Literal['function', 'class', 'interface', 'main', 'process', 'try', 'catch', 'while', 'for', 'if', 'elif', 'else']
 NodeControlType = Literal['flow', 'condition', 'loop', 'function', 'class']
 PythonType = Literal['int', 'float', 'bool', 'str', 'list', 'tuple', 'dict', 'set', 'None', 'Optional', 'Union', 'Any']
 VariableOperationType = Literal['declare', 'assign']  # 宣言モード、変更モード

@@ -29,7 +29,6 @@ import { usePythonIntegration } from '../hooks/usePythonIntegration';
 import { useEdgeOperations } from '../hooks/useEdgeOperations';
 import { useDragDrop } from '../hooks/useDragDrop';
 import { useNodeOperations } from '../hooks/useNodeOperations';
-import { useTemplates } from '../hooks/useTemplates';
 import { buildNodeFormFromNode } from '../forms/buildNodeFormFromNode';
 import { useFlowModalState } from '../state/useFlowModalState';
 import { useCanvasInteractionState } from '../state/useCanvasInteractionState';
@@ -75,12 +74,9 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     setEdgeForm,
     pendingStamp,
     setPendingStamp,
-    isTemplateModalOpen,
-    setIsTemplateModalOpen,
     resetTransientState,
     cancelMemoModal,
     resetVariableEditState,
-    closeTemplateModal,
   } = useFlowModalState();
   const { wrapperRef, reactFlowInstance, onInit, consumePaneClickType } = useCanvasInteractionState();
   const { declaredVariables, declaredVariableEntries, validateTypeCompatibility } =
@@ -105,7 +101,7 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     }
   }, [edges, setEdges]);
 
-  const { calculateSectionSize, updateParentSectionSize, onNodeDragStart, onNodeDragStop } = useDragDrop({
+  const { updateParentSectionSize, onNodeDragStart, onNodeDragStop } = useDragDrop({
     reactFlowInstance,
     setNodes,
   });
@@ -142,8 +138,6 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
   );
 
   const {
-    createLogicNode,
-    createSectionNode,
     createMemoNode,
     createStampNode,
     openNodeModalAtClient,
@@ -301,42 +295,6 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     setPendingVariableEdit,
     setVariableForm,
   ]);
-
-  const openTemplateModal = useCallback(() => {
-    setPendingConnection(null);
-    setPendingNodeClientPosition(null);
-    setPendingNodeDelete(null);
-    setPendingNodeEdit(null);
-    setPendingEdgeEdit(null);
-    setPendingMemoEdit(null);
-    setPendingStamp(null);
-    setNodeModalOption(null);
-    setNodeForm({ ...EMPTY_NODE_FORM });
-    setIsTemplateModalOpen(true);
-  }, [
-    setIsTemplateModalOpen,
-    setNodeForm,
-    setNodeModalOption,
-    setPendingConnection,
-    setPendingEdgeEdit,
-    setPendingMemoEdit,
-    setPendingNodeClientPosition,
-    setPendingNodeDelete,
-    setPendingNodeEdit,
-    setPendingStamp,
-  ]);
-
-  const { applyTemplate } = useTemplates({
-    wrapperRef,
-    reactFlowInstance,
-    createLogicNode,
-    createSectionNode,
-    calculateSectionSize,
-    setNodes,
-    setEdges,
-    nextEdgeSeqRef: nextEdgeSeq,
-    setIsTemplateModalOpen,
-  });
 
   const {
     savedFlows,
@@ -658,7 +616,6 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     currentFlowId,
     currentFlowName,
     updateFlow,
-    openTemplateModal,
     createNewCanvas,
     openExportModal,
     openImportModal,
@@ -713,10 +670,6 @@ export function useFlowVisualizationController({ initialFlowId }: Props) {
     // node delete overlay
     pendingNodeDelete,
     setPendingNodeDelete,
-    // template overlay
-    isTemplateModalOpen,
-    applyTemplate,
-    closeTemplateModal,
     // export overlay
     isExportModalOpen,
     exportedText,

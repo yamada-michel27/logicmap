@@ -168,6 +168,26 @@ class CanvasToPythonConverter:
                 if node.id in nested_sections:
                     self._process_sections(nested_sections[node.id], nested_sections, code_lines, snapshot, indent_level + 1)
 
+            elif section_type == 'process':
+                label = data.get('label', '') if isinstance(data, dict) else getattr(data, 'label', '')
+                note = data.get('note', '') if isinstance(data, dict) else getattr(data, 'note', '')
+                indent = '    ' * indent_level
+                comment_lines = []
+
+                if self.include_comments and label:
+                    comment_lines.append(f"{indent}# Process: {label}")
+                if self.include_comments and note:
+                    comment_lines.append(f"{indent}# {note}")
+
+                code_lines.extend(comment_lines)
+
+                # 子セクションがあれば処理
+                if node.id in nested_sections:
+                    self._process_sections(nested_sections[node.id], nested_sections, code_lines, snapshot, indent_level + 1)
+
+                if comment_lines:
+                    code_lines.append("")
+
             elif section_type in ['if', 'elif', 'else', 'for', 'while']:
                 # Phase7: 制御構文セクションの処理
                 control_lines = self._generate_control_section(node, data, section_type, indent_level)
