@@ -92,6 +92,26 @@ export const NODE_OPTIONS: NodeOption[] = [
   { label: '変数ノード', kind: 'variable' },
 ];
 
+export const NODE_OPTION_GROUPS: {
+  id: 'node' | 'section';
+  label: string;
+  description: string;
+  options: NodeOption[];
+}[] = [
+  {
+    id: 'node',
+    label: 'ノード',
+    description: '処理や制御、変数などの単体要素を追加します。',
+    options: NODE_OPTIONS.filter((option) => option.kind !== 'section'),
+  },
+  {
+    id: 'section',
+    label: 'セクション',
+    description: '関数や条件分岐、ループなどのまとまりを追加します。',
+    options: NODE_OPTIONS.filter((option) => option.kind === 'section'),
+  },
+];
+
 export const CATCH_OPTIONS = [
   { value: 'NullPointerException', label: '参照エラー' },
   { value: 'IllegalArgumentException', label: '引数エラー' },
