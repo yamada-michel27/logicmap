@@ -9,7 +9,7 @@ import type {
   VariableNodeData,
   VariableScope,
 } from '../types';
-import { NODE_OPTIONS } from '../constants';
+import { NODE_OPTION_GROUPS } from '../constants';
 import { getNodeOptionForNode } from '../utils';
 import { NodeModalLogicForm } from './NodeModalLogicForm';
 import { NodeModalSectionForm } from './NodeModalSectionForm';
@@ -80,25 +80,41 @@ export default function NodeModal({
         <p className="mt-1 text-sm text-gray-600">
           {isEdit
             ? '変更したいノード種別を選んでください。'
-            : '追加したいノードを選び、必要な情報を入力してください。'}
+            : '追加したい要素をノードとセクションから選び、必要な情報を入力してください。'}
         </p>
 
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          {NODE_OPTIONS.map((option) => (
-            <button
-              key={`${option.kind}-${option.label}`}
-              type="button"
-              className={`rounded-md border px-3 py-2 text-sm font-semibold ${
-                selectedOption &&
-                option.kind === selectedOption.kind &&
-                option.sectionType === selectedOption.sectionType
-                  ? 'border-gray-900 bg-gray-900 text-white'
-                  : 'border-gray-200 text-gray-900 hover:bg-gray-50'
-              }`}
-              onClick={() => setNodeModalOption(option)}
-            >
-              {option.label}
-            </button>
+        <div className="mt-4 grid gap-4">
+          {NODE_OPTION_GROUPS.map((group) => (
+            <section key={group.id} className="rounded-lg border border-gray-200 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-gray-900">{group.label}</div>
+                  <p className="mt-1 text-xs text-gray-500">{group.description}</p>
+                </div>
+                <span className="rounded-full bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-600">
+                  {group.options.length}種
+                </span>
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {group.options.map((option) => (
+                  <button
+                    key={`${group.id}-${option.kind}-${option.sectionType ?? option.label}`}
+                    type="button"
+                    className={`rounded-md border px-3 py-2 text-sm font-semibold ${
+                      selectedOption &&
+                      option.kind === selectedOption.kind &&
+                      option.sectionType === selectedOption.sectionType
+                        ? 'border-gray-900 bg-gray-900 text-white'
+                        : 'border-gray-200 text-gray-900 hover:bg-gray-50'
+                    }`}
+                    onClick={() => setNodeModalOption(option)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
 
