@@ -1,11 +1,73 @@
-import { Handle, Position, type NodeProps } from 'reactflow';
+import { useCallback, useMemo } from 'react';
+import { Handle, Position, useNodes, type Node, type NodeProps } from 'reactflow';
 import { NodeResizer } from '@reactflow/node-resizer';
 import { CONTROL_STYLE, SECTION_MIN_WIDTH, SECTION_MIN_HEIGHT } from '../constants';
 import { formatTypedFields, formatValidationRules } from '../utils';
-import type { SectionNodeData } from '../types';
+import type { FlowNodeData, SectionNodeData } from '../types';
 
-export function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
+const SECTION_RESIZE_PADDING_X = 32;
+const SECTION_RESIZE_PADDING_BOTTOM = 40;
+
+function getNodeSize(node: Node<FlowNodeData>) {
+  const width =
+    node.width ?? (typeof node.style?.width === 'number' ? node.style.width : undefined);
+  const height =
+    node.height ?? (typeof node.style?.height === 'number' ? node.style.height : undefined);
+
+  if (!width || !height) {
+    return null;
+  }
+
+  return { width, height };
+}
+
+function getSectionMinimumSize(nodes: Node<FlowNodeData>[], sectionId: string) {
+  return nodes
+    .filter((node) => node.parentNode === sectionId)
+    .reduce(
+      (minimum, childNode) => {
+        const size = getNodeSize(childNode);
+        if (!size) {
+          return minimum;
+        }
+
+        return {
+          width: Math.max(
+            minimum.width,
+            Math.max(0, childNode.position.x) + size.width + SECTION_RESIZE_PADDING_X
+          ),
+          height: Math.max(
+            minimum.height,
+            Math.max(0, childNode.position.y) + size.height + SECTION_RESIZE_PADDING_BOTTOM
+          ),
+        };
+      },
+      {
+        width: SECTION_MIN_WIDTH,
+        height: SECTION_MIN_HEIGHT,
+      }
+    );
+}
+
+export function SectionNode({ id, data, selected }: NodeProps<SectionNodeData>) {
+  const nodes = useNodes<FlowNodeData>();
   const style = CONTROL_STYLE[data.sectionType] || CONTROL_STYLE.flow;
+  const currentNode = useMemo(() => nodes.find((node) => node.id === id), [id, nodes]);
+  const minimumSize = useMemo(() => getSectionMinimumSize(nodes, id), [id, nodes]);
+  const shouldResize = useCallback(
+    (_event: unknown, params: { width: number; height: number; x: number; y: number }) => {
+      if (params.width < minimumSize.width || params.height < minimumSize.height) {
+        return false;
+      }
+
+      if (currentNode?.parentNode && (params.x < 0 || params.y < 0)) {
+        return false;
+      }
+
+      return true;
+    },
+    [currentNode?.parentNode, minimumSize.height, minimumSize.width]
+  );
   const details: { label: string; value: string }[] = [];
   if (data.sectionType === 'function') {
     const args = formatTypedFields(data.functionArgs);
@@ -110,14 +172,17 @@ export function SectionNode({ data, selected }: NodeProps<SectionNodeData>) {
       style={{
         borderColor: style.color,
         backgroundColor: 'transparent',
-        zIndex: -10,
         pointerEvents: 'none'
       }}
     >
       <NodeResizer
         isVisible={selected}
-        minWidth={SECTION_MIN_WIDTH}
-        minHeight={SECTION_MIN_HEIGHT}
+        color={style.color}
+        minWidth={minimumSize.width}
+        minHeight={minimumSize.height}
+        shouldResize={shouldResize}
+        handleStyle={{ pointerEvents: 'auto', zIndex: 20 }}
+        lineStyle={{ pointerEvents: 'auto', zIndex: 20 }}
       />
       <div className="text-xs font-semibold uppercase tracking-wide" style={{ color: style.color, pointerEvents: 'auto' }}>
         {style.label}
