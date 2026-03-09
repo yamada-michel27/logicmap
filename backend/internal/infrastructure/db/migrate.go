@@ -12,10 +12,14 @@ func Migrate(ctx context.Context, db *sql.DB) error {
 			id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 			user_id text NOT NULL,
 			name text NOT NULL,
+			description text NOT NULL DEFAULT '',
+			links jsonb NOT NULL DEFAULT '[]'::jsonb,
 			snapshot jsonb NOT NULL,
 			created_at timestamptz NOT NULL DEFAULT now(),
 			updated_at timestamptz NOT NULL DEFAULT now()
 		);`,
+		`ALTER TABLE flows ADD COLUMN IF NOT EXISTS description text NOT NULL DEFAULT '';`,
+		`ALTER TABLE flows ADD COLUMN IF NOT EXISTS links jsonb NOT NULL DEFAULT '[]'::jsonb;`,
 		`CREATE INDEX IF NOT EXISTS idx_flows_user_created ON flows (user_id, created_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_flows_user_name ON flows (user_id, name);`,
 	}

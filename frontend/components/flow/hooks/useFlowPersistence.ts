@@ -122,7 +122,7 @@ export function useFlowPersistence({
       nextEdgeSeq: nextEdgeSeq.current,
     };
     try {
-      const result = await apiFetch<{ id: string; name: string }>('/flows', {
+      const result = await apiFetch<SavedFlowSummary>('/flows', {
         method: 'POST',
         body: JSON.stringify({ name, snapshot }),
       });
